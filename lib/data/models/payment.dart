@@ -13,7 +13,7 @@ extension PaymentMethodX on PaymentMethod {
       case PaymentMethod.card:
         return 'Debit / Credit Card';
       case PaymentMethod.cash:
-        return 'Cash on Pickup';
+        return 'Cash on Delivery / Pickup';
     }
   }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -15,7 +16,9 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/repositories/orders_repository.dart';
 import '../../../data/repositories/customer_profile_repository.dart';
+import '../../../data/repositories/payments_repository.dart';
 import '../../../data/repositories/products_repository.dart';
+import '../../payments/screens/online_payment_screen.dart';
 import '../../settings/screens/branch_settings_screen.dart';
 import '../cart_controller.dart';
 import 'edit_profile_screen.dart';
@@ -23,7 +26,9 @@ import 'order_confirmation_screen.dart';
 
 enum _FulfillmentMethod { pickup, delivery }
 
-enum _PaymentMethod { gcash, card, cash }
+/// `online` is HitPay's hosted checkout (GCash, Maya, cards). `cod` is only
+/// valid for delivery and `cash` (pay at the counter) only for pickup.
+enum _PaymentMethod { online, cod, cash }
 
 /// Checkout — fulfillment method, branch/pickup details, payment method,
 /// and order summary. Order totals, stock, discounts, and cart consumption
@@ -38,7 +43,7 @@ class CheckoutScreen extends StatefulWidget {
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final _formKey = GlobalKey<FormState>();
   _FulfillmentMethod _fulfillment = _FulfillmentMethod.pickup;
-  _PaymentMethod _payment = _PaymentMethod.gcash;
+  _PaymentMethod _payment = _PaymentMethod.online;
   final _notesController = TextEditingController();
   final _addressController = TextEditingController();
   final _contactController = TextEditingController();
@@ -134,9 +139,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     setState(() => _placingOrder = true);
 
+    final payOnline = _payment == _PaymentMethod.online;
     final paymentLabel = switch (_payment) {
-      _PaymentMethod.gcash => 'GCash E-Wallet',
-      _PaymentMethod.card => 'Maya / Credit Card',
+      _PaymentMethod.online => 'Online Payment (GCash, Maya, Card)',
+      _PaymentMethod.cod => 'Cash on Delivery',
       _PaymentMethod.cash => 'Cash on Counter Pickup',
     };
 
@@ -220,6 +226,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       // numbers still sitting in memory.
       unawaited(_quietly(() => ProductsRepository.instance.loadCatalog(branchId: branch.id)));
 
+      if (payOnline) {
+        // The order is saved and unpaid. If the payment page cannot be
+        // opened, the next screen offers a "Pay now" retry; the order is
+        // never lost.
+        String? startError;
+        try {
+          final url = await PaymentsRepository.instance.startHitpayCheckout(order.id);
+          final opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+          if (!opened) startError = 'We could not open the payment page. Please try again.';
+        } catch (e) {
+          startError = AppErrors.from(e, scope: ErrorScope.order).message;
+        }
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => OnlinePaymentScreen(order: order, itemCount: itemCount, startError: startError),
+          ),
+        );
+        return;
+      }
+
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -275,6 +302,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       } else if (_fulfillment == _FulfillmentMethod.pickup && !branch.supportsPickup) {
         _fulfillment = _FulfillmentMethod.delivery;
       }
+    }
+    // Cash on Delivery needs delivery and Cash on Counter Pickup needs
+    // pickup; if a fulfillment change made the choice invalid, fall back to
+    // online payment, which works for both.
+    if ((_fulfillment == _FulfillmentMethod.delivery && _payment == _PaymentMethod.cash) ||
+        (_fulfillment == _FulfillmentMethod.pickup && _payment == _PaymentMethod.cod)) {
+      _payment = _PaymentMethod.online;
     }
     final deliveryFee = _fulfillment == _FulfillmentMethod.delivery
         ? (branch?.deliveryFee ?? 0)
@@ -479,28 +513,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             const SizedBox(height: AppSpacing.sm),
             _PaymentTile(
               icon: Icons.account_balance_wallet_rounded,
-              title: 'GCash E-Wallet',
-              subtitle: 'Instant QR scan / mobile pay',
+              title: 'Online Payment (GCash, Maya, Card)',
+              subtitle: 'Pay securely on the HitPay payment page',
               badge: 'Fast',
-              selected: _payment == _PaymentMethod.gcash,
-              onTap: () => setState(() => _payment = _PaymentMethod.gcash),
+              selected: _payment == _PaymentMethod.online,
+              onTap: () => setState(() => _payment = _PaymentMethod.online),
             ),
             const SizedBox(height: 8),
-            _PaymentTile(
-              icon: Icons.credit_card_rounded,
-              title: 'Maya / Credit Card',
-              subtitle: 'Visa, Mastercard, Maya QR',
-              selected: _payment == _PaymentMethod.card,
-              onTap: () => setState(() => _payment = _PaymentMethod.card),
-            ),
-            const SizedBox(height: 8),
-            _PaymentTile(
-              icon: Icons.storefront_rounded,
-              title: 'Cash on Counter Pickup',
-              subtitle: 'Pay when picking up order',
-              selected: _payment == _PaymentMethod.cash,
-              onTap: () => setState(() => _payment = _PaymentMethod.cash),
-            ),
+            if (_fulfillment == _FulfillmentMethod.delivery)
+              _PaymentTile(
+                icon: Icons.delivery_dining_rounded,
+                title: 'Cash on Delivery',
+                subtitle: 'Pay the rider in cash when your order arrives',
+                selected: _payment == _PaymentMethod.cod,
+                onTap: () => setState(() => _payment = _PaymentMethod.cod),
+              )
+            else
+              _PaymentTile(
+                icon: Icons.storefront_rounded,
+                title: 'Cash on Counter Pickup',
+                subtitle: 'Pay when picking up order',
+                selected: _payment == _PaymentMethod.cash,
+                onTap: () => setState(() => _payment = _PaymentMethod.cash),
+              ),
             const SizedBox(height: AppSpacing.lg),
             Text('Special Instructions (Pasalubong / Packing)', style: AppTextStyles.titleMd),
             const SizedBox(height: 8),
@@ -604,7 +639,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
                 Expanded(
                   child: PrimaryButton(
-                    label: 'Place Order & Pay',
+                    label: _payment == _PaymentMethod.online ? 'Place Order & Pay' : 'Place Order',
                     icon: Icons.arrow_forward_rounded,
                     loading: _placingOrder,
                     onPressed: cart.lines.isEmpty ? null : _placeOrder,
