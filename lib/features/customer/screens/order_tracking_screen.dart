@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -111,6 +112,36 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
+  /// Plain-language headline for the big status card.
+  String _headline(Order o) {
+    if (!o.isDelivery) return o.status.label;
+    switch (o.status) {
+      case OrderStatus.pending:
+      case OrderStatus.confirmed:
+        return 'Order received';
+      case OrderStatus.preparing:
+        return 'Preparing your order';
+      case OrderStatus.readyForPickup:
+      case OrderStatus.outForDelivery:
+        return o.riderName == null ? 'Finding a rider' : 'Rider is on the way';
+      case OrderStatus.completed:
+        return 'Delivered';
+      default:
+        return o.status.label;
+    }
+  }
+
+  Future<void> _callRider(String phone) async {
+    final ok = await launchUrl(Uri(scheme: 'tel', path: phone));
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't open the phone app.")),
+      );
+    }
+  }
+
+  bool _isCod(Order o) => o.paymentMethod.toLowerCase().contains('cash') && o.paymentStatus != 'success';
+
   Branch? _branchForOrder() {
     for (final b in kBranches) {
       if (b.name == _order.branch) return b;
@@ -219,7 +250,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          '● ${order.status.label}',
+                          '● ${_headline(order)}',
                           style: AppTextStyles.labelMd.copyWith(color: AppColors.warning),
                         ),
                       ),
@@ -228,8 +259,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'ETA ${order.etaLabel ?? '—'}',
-                    style: AppTextStyles.headlineLg.copyWith(color: AppColors.primary),
+                    order.etaLabel != null
+                        ? 'Arriving by ${order.etaLabel}'
+                        : (order.isDelivery ? 'ETA appears once a rider picks it up' : 'We will notify you when it is ready'),
+                    style: (order.etaLabel != null ? AppTextStyles.headlineLg : AppTextStyles.titleMd)
+                        .copyWith(color: AppColors.primary),
                   ),
                   Text(
                     order.isDelivery ? 'Delivery order' : 'Pickup order',
@@ -275,6 +309,59 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.md),
+            if (order.isDelivery) ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.location_on_rounded, color: AppColors.primary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Delivering to', style: AppTextStyles.bodySm),
+                          Text(order.deliveryAddressText ?? 'Address not available', style: AppTextStyles.labelLg),
+                          if (_isCod(order)) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'Please prepare ₱${order.total.toStringAsFixed(2)} cash for the rider.',
+                              style: AppTextStyles.bodySm.copyWith(color: AppColors.warning),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            if (order.isDelivery &&
+                order.riderName == null &&
+                (order.status == OrderStatus.readyForPickup || order.status == OrderStatus.outForDelivery)) ...[
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.warningBg,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5)),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text('Looking for a rider near your branch. This page updates automatically.', style: AppTextStyles.bodyMd)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
             if (order.riderName != null)
               Container(
                 padding: const EdgeInsets.all(14),
@@ -300,18 +387,13 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                         ],
                       ),
                     ),
-                    IconButton(
-                      onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Rider messaging isn't available yet.")),
+                    if (order.riderPhone?.isNotEmpty == true)
+                      IconButton.filled(
+                        onPressed: () => _callRider(order.riderPhone!),
+                        style: IconButton.styleFrom(backgroundColor: AppColors.success),
+                        icon: const Icon(Icons.call_rounded, color: Colors.white),
+                        tooltip: 'Call rider',
                       ),
-                      icon: const Icon(Icons.chat_bubble_outline_rounded),
-                    ),
-                    IconButton(
-                      onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Rider calling isn't available yet.")),
-                      ),
-                      icon: const Icon(Icons.call_outlined),
-                    ),
                   ],
                 ),
               ),
