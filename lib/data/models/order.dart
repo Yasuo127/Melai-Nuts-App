@@ -158,6 +158,9 @@ class Order {
   final String paymentMethod;
   final int pointsEarned;
   final String? riderName;
+
+  /// Rider's contact number once a rider has the order (`orders.rider_phone`).
+  final String? riderPhone;
   final String? etaLabel;
   final List<OrderTimelineStep> timeline;
 
@@ -195,6 +198,7 @@ class Order {
     required this.paymentMethod,
     required this.pointsEarned,
     this.riderName,
+    this.riderPhone,
     this.etaLabel,
     this.timeline = const [],
     this.customerNotes = '',
@@ -225,6 +229,7 @@ class Order {
       paymentMethod: row['payment_method'] as String,
       pointsEarned: row['points_earned'] as int,
       riderName: row['rider_name'] as String?,
+      riderPhone: row['rider_phone'] as String?,
       etaLabel: row['eta_label'] as String?,
       timeline: OrderTimelineStep.fromEventRows(eventRows),
       customerNotes: (row['customer_notes'] as String?) ?? '',
