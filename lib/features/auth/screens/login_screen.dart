@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
@@ -142,7 +141,16 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      body: SafeArea(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [AppColors.primaryContainer, AppColors.surface, AppColors.canvas],
+            stops: [0.0, 0.35, 0.7],
+          ),
+        ),
+        child: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.md,
@@ -151,38 +159,23 @@ class _LoginScreenState extends State<LoginScreen> {
             AppSpacing.lg,
           ),
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(
-                  Icons.location_on_outlined,
-                  size: 18,
-                  color: AppColors.textSecondary,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    AppConstants.hubLabel,
-                    style: AppTextStyles.bodySm,
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.successBg,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '● System Online',
-                    style: AppTextStyles.labelMd.copyWith(
-                      color: AppColors.success,
+            const SizedBox(height: AppSpacing.md),
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.22),
+                      blurRadius: 24,
+                      offset: const Offset(0, 10),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+                child: const AppLogo(size: 72),
+              ),
             ),
             const SizedBox(height: AppSpacing.md),
             Container(
@@ -197,12 +190,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 key: _formKey,
                 child: Column(
                   children: [
-                    const AppLogo(size: 76),
-                    const SizedBox(height: 14),
                     Text(
                       _isSignIn ? 'Welcome Back' : 'Create Your Account',
                       style: AppTextStyles.headlineLg.copyWith(
-                        color: AppColors.primary,
+                        color: AppColors.darkBrown,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -243,13 +235,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: AppSpacing.md),
                     if (_isSignIn) ...[
-                      const InfoBanner(
-                        icon: Icons.shield_outlined,
-                        title: 'Login Security',
-                        text:
-                            'Sign in with the email & password for your account.',
-                      ),
-                      const SizedBox(height: AppSpacing.md),
                       AppTextField(
                         label: 'Email Address',
                         controller: _emailController,
@@ -373,6 +358,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             const SizedBox(height: AppSpacing.md),
           ],
+        ),
         ),
       ),
     );
