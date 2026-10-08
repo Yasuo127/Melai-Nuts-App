@@ -121,6 +121,17 @@ service cloud.firestore {
           request.resource.data.get('branch', null) == null &&
           request.resource.data.email.lower() == request.auth.token.email.lower())
         ||
+        // Phone-number sign-up (SMS OTP): Firebase itself verified the number,
+        // so there is no email. Still ONLY a customer profile, no branch, with
+        // an empty email and the phone equal to the number Firebase verified.
+        (isSelf(userId) &&
+          request.auth.token.firebase.sign_in_provider == 'phone' &&
+          request.auth.token.phone_number is string &&
+          request.resource.data.role == 'customer' &&
+          request.resource.data.get('branch', null) == null &&
+          request.resource.data.email == '' &&
+          request.resource.data.get('phone', null) == request.auth.token.phone_number)
+        ||
         (isOwner() &&
           (!(request.resource.data.role in ['staff', 'delivery']) ||
             request.resource.data.get('branch', null) != null))

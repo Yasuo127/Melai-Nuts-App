@@ -62,6 +62,25 @@ test('self-registration with someone else\'s email is denied', async () => {
   const db = asVerified('new3', 'new3@x.com');
   await assertFails(setDoc(doc(db, 'users/new3'), { email: 'ceo@x.com', name: 'N', role: 'customer', phone: null, branch: null, isActive: true, createdAt: serverTimestamp() }));
 });
+// A phone-verified user has no email; Firebase puts the verified number in the token.
+const asPhone = (uid, phone) => env.authenticatedContext(uid, { phone_number: phone, firebase: { sign_in_provider: 'phone' } }).firestore();
+const phoneBase = (phone) => ({ email: '', name: 'N', role: 'customer', phone, branch: null, isActive: true, createdAt: serverTimestamp() });
+test('phone user can self-register only as customer with the number Firebase verified', async () => {
+  const db = asPhone('ph1', '+639171234567');
+  await assertSucceeds(setDoc(doc(db, 'users/ph1'), phoneBase('+639171234567')));
+});
+test('phone self-registration cannot claim another number, a role, a branch or an email', async () => {
+  const db = asPhone('ph2', '+639171234567');
+  await assertFails(setDoc(doc(db, 'users/ph2'), phoneBase('+639999999999')));
+  await assertFails(setDoc(doc(db, 'users/ph2'), { ...phoneBase('+639171234567'), role: 'owner' }));
+  await assertFails(setDoc(doc(db, 'users/ph2'), { ...phoneBase('+639171234567'), role: 'staff', branch: 'Calamba Branch' }));
+  await assertFails(setDoc(doc(db, 'users/ph2'), { ...phoneBase('+639171234567'), branch: 'Calamba Branch' }));
+  await assertFails(setDoc(doc(db, 'users/ph2'), { ...phoneBase('+639171234567'), email: 'ceo@x.com' }));
+});
+test('a non-phone sign-in cannot use the phone self-registration path', async () => {
+  const db = env.authenticatedContext('ph3', { phone_number: '+639171234567', firebase: { sign_in_provider: 'password' } }).firestore();
+  await assertFails(setDoc(doc(db, 'users/ph3'), phoneBase('+639171234567')));
+});
 test('user cannot change own role, branch or reactivate self', async () => {
   await assertFails(updateDoc(doc(as('staffA'), 'users/staffA'), { role: 'owner' }));
   await assertFails(updateDoc(doc(as('staffA'), 'users/staffA'), { branch: 'Los Baños Hub' }));
