@@ -2,7 +2,7 @@
   "name": "melai-nuts-functions",
   "private": true,
   "description": "Firebase Auth blocking functions that give tokens the Supabase `authenticated` role",
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "main": "index.js",
   "scripts": {
     "deploy": "firebase deploy --only functions",

@@ -7,6 +7,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/app_logo.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/info_banner.dart';
+import '../../../core/widgets/motion.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/utils/validation_utils.dart';
@@ -171,7 +172,9 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           children: [
             const SizedBox(height: AppSpacing.md),
-            Center(
+            FadeSlideIn(
+              offsetY: 24,
+              child: Center(
               child: Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -188,8 +191,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: const AppLogo(size: 72),
               ),
             ),
+            ),
             const SizedBox(height: AppSpacing.md),
-            Container(
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 140),
+              child: Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -393,6 +399,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ],
                 ),
               ),
+            ),
             ),
             const SizedBox(height: AppSpacing.md),
           ],

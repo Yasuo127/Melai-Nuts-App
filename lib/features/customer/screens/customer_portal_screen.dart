@@ -47,10 +47,24 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: NavigationBarTheme(
+      bottomNavigationBar: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: const Border(top: BorderSide(color: AppColors.border)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.darkBrown.withValues(alpha: 0.08),
+              blurRadius: 20,
+              offset: const Offset(0, -6),
+            ),
+          ],
+        ),
+        child: NavigationBarTheme(
         data: NavigationBarThemeData(
           backgroundColor: Colors.white,
-          indicatorColor: AppColors.primaryContainer.withValues(alpha: 0.5),
+          elevation: 0,
+          height: 68,
+          indicatorColor: AppColors.primaryContainer.withValues(alpha: 0.7),
           surfaceTintColor: Colors.transparent,
           labelTextStyle: WidgetStateProperty.resolveWith((states) {
             if (states.contains(WidgetState.selected)) {
@@ -102,6 +116,7 @@ class _CustomerPortalScreenState extends State<CustomerPortalScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
