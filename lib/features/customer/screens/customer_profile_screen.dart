@@ -37,7 +37,10 @@ class CustomerProfileScreen extends StatelessWidget {
     final phone = profile?.phone ?? '';
     final points = CustomerDataStore.instance.pointsBalance;
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
-    final emailVerified = AuthService.instance.currentFirebaseUser?.emailVerified ?? false;
+    final fbUser = AuthService.instance.currentFirebaseUser;
+    // A phone-sign-in account has no email; its identity was verified by SMS.
+    final emailVerified =
+        (fbUser?.emailVerified ?? false) || (fbUser?.phoneNumber ?? '').isNotEmpty;
     final addresses = CustomerDataStore.instance.addresses;
     final defaultAddress = CustomerDataStore.instance.defaultAddress;
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
@@ -10,6 +11,7 @@ import '../../../core/widgets/primary_button.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/utils/validation_utils.dart';
 import 'email_verification_screen.dart';
+import 'phone_login_screen.dart';
 import '../../../data/models/user_role.dart';
 /// Single sign-in / create-account screen shared by every account type
 /// (customer, staff, owner, and delivery). One set of credentials, one
@@ -128,6 +130,15 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       await _createAccount();
     }
+  }
+
+  // Phone (SMS) sign-in is an Android-only extra; hidden everywhere else.
+  bool get _showPhoneLogin => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  void _openPhoneLogin() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const PhoneLoginScreen()),
+    );
   }
 
   void _openVerification() {
@@ -350,6 +361,33 @@ class _LoginScreenState extends State<LoginScreen> {
                         icon: Icons.shopping_bag_outlined,
                         loading: _submitting,
                         onPressed: _submit,
+                      ),
+                    ],
+                    if (_showPhoneLogin) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      Row(
+                        children: [
+                          const Expanded(child: Divider(color: AppColors.border)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text('or', style: AppTextStyles.bodySm),
+                          ),
+                          const Expanded(child: Divider(color: AppColors.border)),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _submitting ? null : _openPhoneLogin,
+                          icon: const Icon(Icons.phone_android_rounded, size: 18),
+                          label: const Text('Log in with phone number'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(color: AppColors.primary),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
                       ),
                     ],
                   ],

@@ -128,3 +128,40 @@ Setup: apply `supabase/migrations/20261007010000_cod_and_hitpay.sql`, then follo
 account, set the secrets (`HITPAY_API_KEY`, `HITPAY_SALT`, `HITPAY_ENV`,
 `HITPAY_REDIRECT_URL`) and deploy `hitpay-create-payment` and `hitpay-webhook`.
 No payment secrets are ever stored in the app.
+
+## Phone login (Android)
+
+"Log in with phone number" (SMS one-time code) is an extra sign-in option on the
+login screen. It is shown on Android only; email + password is unchanged. A phone
+sign-in creates its own customer account (no email) — it is not linked to an
+existing email account of the same person.
+
+1. **Enable the provider:** Firebase console > Authentication > Sign-in method >
+   Phone > Enable.
+2. **Add test numbers (free, avoids the ~10 real SMS/day quota on new projects):**
+   Authentication > Sign-in method > Phone > *Phone numbers for testing*. Add e.g.
+   `+63 917 123 4567` with a fixed code such as `123456`. No SMS is sent for these.
+3. **Add your debug fingerprints** (without them Android phone auth fails with
+   "app not authorized"): Project settings > Your apps > Android app > *Add
+   fingerprint* — add both **SHA-1** and **SHA-256**. Then **re-download
+   `google-services.json`** and replace `android/app/google-services.json`.
+4. **Read the debug SHA-1 / SHA-256 on Windows:**
+
+   ```powershell
+   cd android
+   .\gradlew signingReport
+   ```
+
+   Use the values listed under the **`debug`** variant. Alternative with keytool
+   and the default debug keystore:
+
+   ```powershell
+   keytool -list -v -keystore "$env:USERPROFILE\.android\debug.keystore" -alias androiddebugkey -storepass android -keypass android
+   ```
+
+   Release builds need the release keystore's fingerprints added the same way
+   (and the Play App Signing certificate if you publish via Google Play).
+5. **Firestore rules:** a phone-only customer has no email, so the self-sign-up
+   rule for `users/{uid}` must allow the phone provider (see the rules change
+   proposed alongside this feature) and be deployed:
+   `firebase deploy --only firestore:rules`.
