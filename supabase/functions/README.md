@@ -1,11 +1,46 @@
-# Supabase Edge Functions: HitPay online payments
+# Supabase Edge Functions
 
 | Function | Called by | Purpose |
 | --- | --- | --- |
 | `hitpay-create-payment` | the app (customer) | Creates (or reuses) a HitPay hosted-checkout link for an order and returns its URL. The amount is read from the database, never from the app. |
 | `hitpay-webhook` | HitPay | Verifies the signed event, checks the amount, and marks the payment `success` / `failed`. |
+| `grant-role-claim` | the app (any signed-in user) | Gives the caller's Firebase account the `role: authenticated` claim that Supabase needs to apply RLS (no Firebase Blaze plan needed). See the next section. |
 
 Cash on Delivery and Cash on Counter Pickup do not use these functions.
+
+## 0. `grant-role-claim` (required for orders, cart, profile, addresses)
+
+Supabase reads the `role` claim of the Firebase ID token. Firebase tokens have none, so without this function every request runs as `anon` and the app shows "You don't have permission to do that."
+
+The app calls this function automatically (see `lib/core/services/supabase_token.dart`) when the token lacks the claim. The function verifies the Firebase ID token against Google's public keys (issuer and audience pinned to your project), then sets `role: authenticated` on **that account only**, preserving any other custom claims.
+
+### Create a least-privilege service account
+
+1. Google Cloud Console (https://console.cloud.google.com), project `melai-nuts-app` > IAM & Admin > Service Accounts > **Create service account**. Name it `supabase-role-claim`.
+2. Grant the single role **Firebase Authentication Admin**. Skip the optional steps and click Done.
+3. Open the new account > Keys > Add key > Create new key > **JSON**. A `.json` file downloads.
+4. Never commit this file or paste it anywhere except step below. Delete it from your computer afterwards.
+
+(Shortcut, broader access: Firebase console > Project settings > Service accounts > Generate new private key.)
+
+### Set the secret and deploy
+
+Supabase Dashboard > Edge Functions > Secrets > add:
+
+| Name | Value |
+| --- | --- |
+| `FIREBASE_SERVICE_ACCOUNT` | the entire contents of the downloaded JSON |
+| `FIREBASE_PROJECT_ID` | `melai-nuts-app` (optional; this is the default) |
+
+```bash
+supabase functions deploy grant-role-claim --no-verify-jwt
+```
+
+`--no-verify-jwt` is required because the app signs in with Firebase tokens; the function verifies the token itself.
+
+### Test
+
+Open the app signed in (sign out and in once). Home, Saved Addresses and Edit Profile should load without "permission denied". `supabase functions logs grant-role-claim` shows errors; a 502 usually means the service account lacks the Firebase Authentication Admin role.
 
 ## 1. Apply the database migration
 
