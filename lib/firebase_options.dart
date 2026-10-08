@@ -68,10 +68,10 @@ class DefaultFirebaseOptions {
   // core/duplicate-app).
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: String.fromEnvironment('FIREBASE_API_KEY_ANDROID'),
-    appId: '1:865090291609:android:231a67991e6cea8e1db508',
-    messagingSenderId: '865090291609',
-    projectId: 'melai-nuts-app-2026',
-    storageBucket: 'melai-nuts-app-2026.firebasestorage.app',
+    appId: '1:657281599295:android:a1c2db2b91a5e420bbf58a',
+    messagingSenderId: '657281599295',
+    projectId: 'melai-nuts-app',
+    storageBucket: 'melai-nuts-app.firebasestorage.app',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
