@@ -4,6 +4,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_text_styles.dart';
 import '../utils/app_error.dart';
+import 'motion.dart';
 
 /// Shared building blocks for the four states every real-backend screen must
 /// handle: **loading**, **empty**, **error (with retry)** and **success**.
@@ -70,34 +71,37 @@ class StateEmptyView extends StatelessWidget {
   Widget build(BuildContext context) {
     return _StateFrame(
       compact: compact,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: compact ? 36 : 64,
-            color: AppColors.textMuted.withValues(alpha: 0.5),
-          ),
-          SizedBox(height: compact ? AppSpacing.xs : AppSpacing.md),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: (compact ? AppTextStyles.labelLg : AppTextStyles.headlineSm)
-                .copyWith(color: AppColors.textMuted),
-          ),
-          if (message != null) ...[
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              message!,
-              textAlign: TextAlign.center,
-              style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted),
+      child: FadeSlideIn(
+        offsetY: 10,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _IconBadge(
+              icon: icon,
+              color: AppColors.primary,
+              size: compact ? 52 : 92,
             ),
+            SizedBox(height: compact ? AppSpacing.xs : AppSpacing.md),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: (compact ? AppTextStyles.labelLg : AppTextStyles.headlineSm)
+                  .copyWith(color: AppColors.darkBrown),
+            ),
+            if (message != null) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                message!,
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted),
+              ),
+            ],
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              ElevatedButton(onPressed: onAction, child: Text(actionLabel!)),
+            ],
           ],
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            OutlinedButton(onPressed: onAction, child: Text(actionLabel!)),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -131,32 +135,60 @@ class StateErrorView extends StatelessWidget {
         appError?.message ??
         'Something went wrong. Please try again.';
     final offline = appError?.isConnectivity ?? false;
+    final denied = appError?.kind == AppErrorKind.permissionDenied ||
+        appError?.kind == AppErrorKind.authExpired;
+
+    final IconData icon;
+    final Color color;
+    if (offline) {
+      icon = Icons.wifi_off_rounded;
+      color = AppColors.warning;
+    } else if (denied) {
+      icon = Icons.lock_outline_rounded;
+      color = AppColors.secondaryBrown;
+    } else {
+      icon = Icons.sentiment_dissatisfied_rounded;
+      color = AppColors.error;
+    }
 
     return _StateFrame(
       compact: compact,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            offline ? Icons.cloud_off_rounded : Icons.error_outline_rounded,
-            size: compact ? 32 : 56,
-            color: AppColors.error.withValues(alpha: 0.8),
-          ),
-          SizedBox(height: compact ? AppSpacing.xs : AppSpacing.md),
-          Text(
-            text,
-            textAlign: TextAlign.center,
-            style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted),
-          ),
-          if (onRetry != null) ...[
+      child: FadeSlideIn(
+        offsetY: 10,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _IconBadge(icon: icon, color: color, size: compact ? 52 : 92),
             SizedBox(height: compact ? AppSpacing.xs : AppSpacing.md),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: Text(retryLabel),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: (compact ? AppTextStyles.labelLg : AppTextStyles.titleMd)
+                  .copyWith(color: AppColors.darkBrown),
             ),
+            // Most permission errors right after sign-in are a stale session.
+            if (denied && !compact) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'If this keeps happening, sign out and sign in again to refresh your access.',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodyMd.copyWith(color: AppColors.textMuted),
+              ),
+            ],
+            if (onRetry != null) ...[
+              SizedBox(height: compact ? AppSpacing.xs : AppSpacing.md),
+              OutlinedButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: Text(retryLabel),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: Size(compact ? 0 : 64, compact ? 40 : 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -301,6 +333,36 @@ class DataStateView extends StatelessWidget {
       );
     }
     return content;
+  }
+}
+
+/// Soft round badge that holds the icon of an empty/error state.
+class _IconBadge extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final double size;
+
+  const _IconBadge({required this.icon, required this.color, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            color.withValues(alpha: 0.18),
+            color.withValues(alpha: 0.07),
+          ],
+        ),
+        border: Border.all(color: color.withValues(alpha: 0.15)),
+      ),
+      child: Icon(icon, size: size * 0.46, color: color),
+    );
   }
 }
 

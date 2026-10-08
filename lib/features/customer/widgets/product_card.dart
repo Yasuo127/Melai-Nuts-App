@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/widgets/motion.dart';
 import '../../../data/models/product.dart';
 
 /// Product "photo" tile: the real uploaded product image when one exists,
@@ -58,7 +59,8 @@ class ProductThumbnail extends StatelessWidget {
           ],
         ),
       ),
-      child: Icon(product.icon, color: product.color, size: size * 0.42),
+      // `size` is double.infinity when the tile fills its parent (cards).
+      child: Icon(product.icon, color: product.color, size: size.isFinite ? size * 0.42 : 56),
     );
   }
 }
@@ -81,15 +83,14 @@ class ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return Pressable(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(color: AppColors.border),
-          boxShadow: AppShadows.sm,
+          boxShadow: AppShadows.md,
         ),
         padding: const EdgeInsets.all(10),
         child: Column(
@@ -100,12 +101,12 @@ class ProductCard extends StatelessWidget {
                 // Fixed-height image container to avoid infinite height constraints
                 // in unconstrained parents like Columns or ListViews.
                 SizedBox(
-                  height: 150,
+                  height: 140,
                   width: double.infinity,
                   child: ProductThumbnail(
                     product: product,
                     size: double.infinity,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                 ),
                 if (product.badge != null)
@@ -179,8 +180,9 @@ class ProductCard extends StatelessWidget {
                     children: [
                       Text(
                         '₱${product.price.toStringAsFixed(0)}',
-                        style: AppTextStyles.titleMd.copyWith(
+                        style: AppTextStyles.headlineSm.copyWith(
                           color: AppColors.primary,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                       if (product.originalPrice != null)
@@ -228,27 +230,46 @@ class _AddButton extends StatelessWidget {
     }
     if (quantity > 0) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
-          color: AppColors.primaryContainer,
+          color: AppColors.successBg,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Text(
-          'In cart · $quantity',
-          style: AppTextStyles.labelSm.copyWith(color: AppColors.primaryDark),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_rounded, size: 14, color: AppColors.success),
+            const SizedBox(width: 3),
+            Text(
+              '$quantity',
+              style: AppTextStyles.labelSm.copyWith(color: AppColors.success),
+            ),
+          ],
         ),
       );
     }
-    return SizedBox(
-      height: 32,
-      child: ElevatedButton.icon(
-        onPressed: onAdd,
-        icon: const Icon(Icons.add_rounded, size: 16),
-        label: const Text('Add'),
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          textStyle: AppTextStyles.labelSm.copyWith(color: Colors.white),
+    return Pressable(
+      onTap: onAdd,
+      pressedScale: 0.88,
+      child: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFBE7B47), AppColors.primaryDark],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.35),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
+        child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
       ),
     );
   }
