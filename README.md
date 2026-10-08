@@ -114,3 +114,17 @@ Run it right after the staff backend migration (it is idempotent).
   an authority. On Linux/Windows desktop it needs the platform `sqlite3`
   library; Android/iOS use the sqflite plugin; on web it is unavailable and the
   app simply has no offline staff cache.
+
+## Payments (COD + HitPay)
+
+Checkout offers, depending on the fulfillment method:
+
+- **Online Payment (GCash, Maya, Card)**: always available. The order is placed first, then the customer pays on HitPay's hosted checkout (PHP). The payment becomes `success` only when HitPay's signed webhook reaches the `hitpay-webhook` Edge Function; the app just shows the live status.
+- **Cash on Delivery**: delivery orders only. The customer pays the rider; staff press "Confirm Cash Received".
+- **Cash on Counter Pickup**: pickup orders only; staff confirm the cash at the counter.
+
+Setup: apply `supabase/migrations/20261007010000_cod_and_hitpay.sql`, then follow
+[`supabase/functions/README.md`](supabase/functions/README.md) to create the HitPay
+account, set the secrets (`HITPAY_API_KEY`, `HITPAY_SALT`, `HITPAY_ENV`,
+`HITPAY_REDIRECT_URL`) and deploy `hitpay-create-payment` and `hitpay-webhook`.
+No payment secrets are ever stored in the app.
