@@ -59,7 +59,8 @@ class ProductThumbnail extends StatelessWidget {
           ],
         ),
       ),
-      child: Icon(product.icon, color: product.color, size: size * 0.42),
+      // `size` is double.infinity when the tile fills its parent (cards).
+      child: Icon(product.icon, color: product.color, size: size.isFinite ? size * 0.42 : 56),
     );
   }
 }

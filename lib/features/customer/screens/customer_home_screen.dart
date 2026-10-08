@@ -694,7 +694,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               FadeSlideIn(
                 delay: next(),
                 child: SizedBox(
-                  height: 164,
+                  height: 184,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 4),
