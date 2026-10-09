@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
+import '../../../core/widgets/state_views.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/product.dart';
+import '../../../data/repositories/products_repository.dart';
+import '../../../data/repositories/staff_repository.dart';
 
 /// Full Product Management catalog list — search, category filter chips,
 /// and a management-focused product card (SKU, margin, edit/pricing
@@ -21,10 +25,124 @@ class _ProductListScreenState extends State<ProductListScreen> {
   String? _selectedCategory;
   final _searchController = TextEditingController();
 
+  // Inactive products are not part of the shared catalog, so they are read
+  // separately and only when the "Inactive" chip is selected.
+  bool _showInactive = false;
+  bool _inactiveLoading = false;
+  Object? _inactiveError;
+  List<InactiveProduct> _inactive = const [];
+  final Set<String> _reactivating = {};
+
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadInactive() async {
+    setState(() {
+      _inactiveLoading = true;
+      _inactiveError = null;
+    });
+    try {
+      final rows = await StaffRepository.instance.listInactiveProducts();
+      if (!mounted) return;
+      setState(() {
+        _inactive = rows;
+        _inactiveLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _inactiveError = e;
+        _inactiveLoading = false;
+      });
+    }
+  }
+
+  Future<void> _reactivate(InactiveProduct product) async {
+    if (_reactivating.contains(product.id)) return;
+    setState(() => _reactivating.add(product.id));
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await StaffRepository.instance.setProductActive(product.id, true);
+      // Bring it back into the shared catalog, then refresh this list.
+      await ProductsRepository.instance.loadCatalog();
+      final rows = await StaffRepository.instance.listInactiveProducts();
+      if (!mounted) return;
+      setState(() {
+        _inactive = rows;
+        _reactivating.remove(product.id);
+      });
+      messenger.showSnackBar(SnackBar(content: Text('"${product.name}" is active again.')));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _reactivating.remove(product.id));
+      messenger.showSnackBar(SnackBar(
+        content: Text(e is AppError ? e.message : 'Could not reactivate the product. Please try again.'),
+      ));
+    }
+  }
+
+  List<InactiveProduct> get _filteredInactive {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) return _inactive;
+    return _inactive
+        .where((p) => p.name.toLowerCase().contains(query) || (p.sku ?? '').toLowerCase().contains(query))
+        .toList();
+  }
+
+  Widget _inactiveBody() {
+    final items = _filteredInactive;
+    return DataStateView(
+      isLoading: _inactiveLoading,
+      error: _inactiveError,
+      isEmpty: items.isEmpty,
+      onRetry: _loadInactive,
+      emptyIcon: Icons.inventory_2_outlined,
+      emptyTitle: 'No inactive products.',
+      emptyMessage: 'Products you switch off will appear here so you can reactivate them.',
+      builder: (context) => ListView.separated(
+        padding: const EdgeInsets.fromLTRB(AppSpacing.md, 0, AppSpacing.md, AppSpacing.md),
+        itemCount: items.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 10),
+        itemBuilder: (context, i) {
+          final p = items[i];
+          final busy = _reactivating.contains(p.id);
+          return Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(p.name, style: AppTextStyles.labelLg, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(
+                        '${(p.sku ?? '').isEmpty ? 'No SKU' : p.sku!} • ₱${p.price.toStringAsFixed(2)}',
+                        style: AppTextStyles.bodySm,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: busy ? null : () => _reactivate(p),
+                  child: busy
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Reactivate'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   List<Product> get _filtered {
@@ -76,8 +194,11 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
                       label: Text('All (${kProducts.length})'),
-                      selected: _selectedCategory == null,
-                      onSelected: (_) => setState(() => _selectedCategory = null),
+                      selected: _selectedCategory == null && !_showInactive,
+                      onSelected: (_) => setState(() {
+                        _selectedCategory = null;
+                        _showInactive = false;
+                      }),
                     ),
                   ),
                   for (final cat in kProductCategories)
@@ -85,16 +206,32 @@ class _ProductListScreenState extends State<ProductListScreen> {
                       padding: const EdgeInsets.only(right: 8),
                       child: ChoiceChip(
                         label: Text('${cat.name} (${productsByCategory(cat.id).length})'),
-                        selected: _selectedCategory == cat.id,
-                        onSelected: (_) => setState(() => _selectedCategory = cat.id),
+                        selected: _selectedCategory == cat.id && !_showInactive,
+                        onSelected: (_) => setState(() {
+                          _selectedCategory = cat.id;
+                          _showInactive = false;
+                        }),
                       ),
                     ),
+                  ChoiceChip(
+                    label: const Text('Inactive'),
+                    selected: _showInactive,
+                    onSelected: (_) {
+                      setState(() {
+                        _showInactive = true;
+                        _selectedCategory = null;
+                      });
+                      _loadInactive();
+                    },
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
             Expanded(
-              child: ListView.separated(
+              child: _showInactive
+                  ? _inactiveBody()
+                  : ListView.separated(
                 padding: const EdgeInsets.fromLTRB(AppSpacing.md, 0, AppSpacing.md, AppSpacing.md),
                 itemCount: products.length,
                 separatorBuilder: (context, index) => const SizedBox(height: 10),
@@ -128,6 +265,16 @@ class _ManagedProductCard extends StatelessWidget {
     required this.onEdit,
     required this.onPricing,
   });
+
+  /// Lowest–highest variant price; falls back to the product price for a
+  /// product with no variants (reducing an empty list would throw).
+  static String _priceRange(Product product) {
+    if (product.variants.isEmpty) return '₱${product.price.toStringAsFixed(0)}';
+    final prices = product.variants.map((v) => v.price);
+    final lo = prices.reduce((a, b) => a < b ? a : b);
+    final hi = prices.reduce((a, b) => a > b ? a : b);
+    return '₱${lo.toStringAsFixed(0)}–₱${hi.toStringAsFixed(0)}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -185,8 +332,7 @@ class _ManagedProductCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '₱${product.variants.map((v) => v.price).reduce((a, b) => a < b ? a : b).toStringAsFixed(0)}'
-                  '–₱${product.variants.map((v) => v.price).reduce((a, b) => a > b ? a : b).toStringAsFixed(0)}',
+                  _priceRange(product),
                   style: AppTextStyles.titleMd.copyWith(color: AppColors.primary),
                 ),
                 Text('Margin ${product.marginPercent.toStringAsFixed(0)}%', style: AppTextStyles.labelLg.copyWith(color: AppColors.success)),

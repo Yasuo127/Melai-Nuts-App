@@ -11,7 +11,6 @@ import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
-import '../../../data/dummy_data/dummy_inventory.dart';
 import '../../../data/models/product.dart';
 
 /// "Edit Product" — same section layout as [AddProductScreen], pre-filled
@@ -35,7 +34,14 @@ class _EditProductScreenState extends State<EditProductScreen> {
   late final _srpController = TextEditingController(text: _product.price.toStringAsFixed(2));
   late String _category = _product.categoryId;
   late bool _isActive = _product.isActive;
-  late final Set<String> _selectedBranches = {..._product.branchAvailability};
+  // Branches that already stock this product. The database only ever ADDS
+  // branch availability from this form (it never removes it), so these stay
+  // ticked and locked; stock leaves a branch through Inventory instead.
+  late final Set<String> _stockedBranchIds = {
+    for (final b in kBranches)
+      if (_product.branchAvailability.contains(b.name)) b.id,
+  };
+  late final Set<String> _selectedBranchIds = {..._stockedBranchIds};
   bool _saving = false;
 
   double get _cogs => double.tryParse(_cogsController.text) ?? 0;
@@ -54,16 +60,9 @@ class _EditProductScreenState extends State<EditProductScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_selectedBranches.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select at least one branch.')),
-      );
-      return;
-    }
-
     setState(() => _saving = true);
     try {
-      final branchIds = kBranches.where((b) => _selectedBranches.contains(b.name)).map((b) => b.id).toList();
+      final branchIds = _selectedBranchIds.toList();
       // A single-variant product follows the edited price; multi-variant
       // products keep their variants (managed on the variants screen).
       final variants = _product.variants.length <= 1
@@ -108,36 +107,33 @@ class _EditProductScreenState extends State<EditProductScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Never edit a placeholder: if the product isn't in the loaded catalog
+    // (not found, or no longer active) say so instead of showing a form that
+    // would save over a different record.
+    if (!kProducts.any((p) => p.id == widget.productId)) {
+      return Scaffold(
+        backgroundColor: AppColors.canvas,
+        appBar: AppBar(title: const Text('Edit Product')),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Text(
+                'This product could not be found. It may have been deactivated or removed.',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodyMd,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.canvas,
       appBar: AppBar(
         leading: IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.of(context).pop()),
         title: const Text('Edit Product'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error),
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: const Text('Delete this product?'),
-                content: Text('${_product.name} will be removed from the catalog. This is a frontend-only simulation.'),
-                actions: [
-                  TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      Navigator.of(context).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Simulated: ${_product.name} deleted.')),
-                      );
-                    },
-                    child: const Text('Delete'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
       ),
       body: SafeArea(
         child: Form(
@@ -157,12 +153,9 @@ class _EditProductScreenState extends State<EditProductScreen> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Simulated: photo picker opened (no backend/storage).')),
-                        ),
-                        icon: const Icon(Icons.edit_outlined, size: 16),
-                        label: const Text('Change Photo'),
+                      child: Text(
+                        'Product photos can\'t be changed yet. Existing photos are kept as they are.',
+                        style: AppTextStyles.bodyMd,
                       ),
                     ),
                   ],
@@ -264,20 +257,37 @@ class _EditProductScreenState extends State<EditProductScreen> {
                 title: 'Branch Availability',
                 child: Column(
                   children: [
-                    for (final branch in kInventoryBranches)
+                    if (kBranches.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text('Branches have not loaded yet. Go back and try again.', style: AppTextStyles.bodyMd),
+                      ),
+                    for (final branch in kBranches)
                       CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
-                        value: _selectedBranches.contains(branch),
+                        value: _selectedBranchIds.contains(branch.id),
                         activeColor: AppColors.primary,
-                        title: Text(branch, style: AppTextStyles.bodyMd),
-                        onChanged: (v) => setState(() {
-                          if (v == true) {
-                            _selectedBranches.add(branch);
-                          } else {
-                            _selectedBranches.remove(branch);
-                          }
-                        }),
+                        title: Text(branch.name, style: AppTextStyles.bodyMd),
+                        subtitle: _stockedBranchIds.contains(branch.id)
+                            ? Text('Currently stocked', style: AppTextStyles.bodySm)
+                            : null,
+                        onChanged: _stockedBranchIds.contains(branch.id)
+                            ? null
+                            : (v) => setState(() {
+                                  if (v == true) {
+                                    _selectedBranchIds.add(branch.id);
+                                  } else {
+                                    _selectedBranchIds.remove(branch.id);
+                                  }
+                                }),
                       ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Ticking a branch makes the product available there with 0 stock. Branches that already stock it can\'t be removed here.',
+                        style: AppTextStyles.bodySm,
+                      ),
+                    ),
                   ],
                 ),
               ),

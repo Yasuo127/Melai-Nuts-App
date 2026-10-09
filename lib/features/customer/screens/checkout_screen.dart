@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -193,8 +194,46 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ]);
         }
       }
-      final attempt = await CheckoutAttemptStore.instance.begin(uid: firebaseUid, cartId: cartId);
       final itemCount = cart.itemCount;
+      final notes = _notesController.text.trim();
+      // The server answers a repeated key with the FIRST order it stored and
+      // never compares the request, so a key may only be reused for the
+      // identical request. Everything that shapes the order goes in here.
+      final fingerprint = jsonEncode([isDelivery, deliveryAddressId, paymentLabel, notes]);
+      final CheckoutAttempt attempt;
+      try {
+        attempt = await CheckoutAttemptStore.instance.begin(
+          uid: firebaseUid,
+          cartId: cartId,
+          fingerprint: fingerprint,
+        );
+      } on CheckoutAlreadyPlacedException catch (placed) {
+        // The customer changed their options after a request whose outcome was
+        // unknown, and the server had in fact accepted it. That earlier order
+        // is the real one: show it rather than placing a second.
+        await _quietly(() => cart.completeCheckout());
+        unawaited(_quietly(() => CustomerDataStore.instance.refresh()));
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('Your earlier order went through, so it was kept as placed. '
+                  'Check its details below.'),
+              duration: Duration(seconds: 6),
+            ),
+          );
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => OrderConfirmationScreen(
+              order: placed.order,
+              itemCount: itemCount,
+              total: placed.order.total,
+            ),
+          ),
+        );
+        return;
+      }
       // `place_order` creates the order, its items, and its payment record
       // together in one database transaction — there is no separate,
       // second network call to record the payment here, so a dropped
@@ -208,7 +247,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         isDelivery: isDelivery,
         deliveryAddressId: deliveryAddressId,
         paymentMethod: paymentLabel,
-        customerNotes: _notesController.text.trim(),
+        customerNotes: notes,
         idempotencyKey: attempt.key,
       );
 

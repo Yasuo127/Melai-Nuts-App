@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/utils/request_key.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/staff_data_scope.dart';
@@ -213,6 +216,7 @@ class _RequestSheetState extends State<_RequestSheet> {
   String? _fromBranchId;
   String? _variantId;
   bool _saving = false;
+  final _requestKey = RequestKeyHolder();
 
   @override
   void dispose() {
@@ -233,6 +237,11 @@ class _RequestSheetState extends State<_RequestSheet> {
         variantId: _variantId!,
         quantity: int.parse(_qty.text.trim()),
         note: _note.text,
+        // One key per distinct request: a retry after a timeout reuses it, so
+        // the server creates one transfer even if the first try landed.
+        idempotencyKey: _requestKey.keyFor(
+          jsonEncode([_fromBranchId, toBranch, _variantId, _qty.text.trim(), _note.text.trim()]),
+        ),
       );
       if (!mounted) return;
       widget.store.refreshLive();

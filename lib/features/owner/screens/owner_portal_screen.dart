@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../app/routes.dart';
+import '../../../core/services/audit_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../data/dummy_data/dummy_sales.dart';
+import '../../../core/widgets/state_views.dart';
+import '../../../data/models/audit_entry.dart';
 import '../../products/screens/product_management_screen.dart';
-import '../widgets/branch_performance_card.dart';
+import '../widgets/owner_branch_tile.dart';
+import '../widgets/owner_sales_scope.dart';
 import 'owner_dashboard_screen.dart';
 import 'owner_profile_screen.dart';
 import 'user_management_screen.dart';
@@ -120,56 +125,136 @@ class _BranchComparisonTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return OwnerSalesScope(
+      days: 7,
+      builder: (context, summary) {
+        final branches = [...summary.branches]..sort((a, b) => b.weekRevenue.compareTo(a.weekRevenue));
+        return ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(AppSpacing.md),
           children: [
-            Text('Branch Operations', style: AppTextStyles.headlineSm),
-            TextButton(
-              onPressed: () => Navigator.of(context).pushNamed(AppRoutes.ownerBranchComparison),
-              child: const Text('Full Comparison'),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Branch Operations', style: AppTextStyles.headlineSm),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pushNamed(AppRoutes.ownerBranchComparison),
+                  child: const Text('Full Comparison'),
+                ),
+              ],
             ),
+            const SizedBox(height: AppSpacing.sm),
+            if (branches.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: Text('No branches found.', style: AppTextStyles.bodyMd)),
+              ),
+            for (var i = 0; i < branches.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: OwnerBranchTile(
+                  sales: branches[i],
+                  rank: i + 1,
+                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerBranchPerformance, arguments: branches[i].name),
+                ),
+              ),
           ],
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        for (final sales in kBranchSalesList)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: BranchPerformanceCard(
-              sales: sales,
-              onTap: () => Navigator.of(context).pushNamed(AppRoutes.ownerBranchPerformance, arguments: sales.branch),
-            ),
-          ),
-      ],
+        );
+      },
     );
   }
 }
 
-class _SystemLogsTab extends StatelessWidget {
+/// The real, append-only audit trail (`staff_audit_logs`). The owner's row
+/// level security returns every staff member's entries.
+class _SystemLogsTab extends StatefulWidget {
   const _SystemLogsTab();
 
   @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      children: [
-        Text('Enterprise Audit Logs', style: AppTextStyles.labelSm),
-        const SizedBox(height: 10),
-        _buildLogTile('POS Login', 'Manager Elena (Calamba)', '10:24 AM'),
-        _buildLogTile('Inventory Adjustment', 'Staff Juan (Santa Cruz)', '09:15 AM'),
-        _buildLogTile('Price Update', 'System Automate (HQ)', '08:00 AM'),
-      ],
-    );
+  State<_SystemLogsTab> createState() => _SystemLogsTabState();
+}
+
+class _SystemLogsTabState extends State<_SystemLogsTab> {
+  static final _time = DateFormat('MMM d, h:mm a');
+
+  bool _loading = true;
+  Object? _error;
+  List<AuditEntry> _entries = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
 
-  Widget _buildLogTile(String action, String user, String time) {
-    return ListTile(
-      leading: const Icon(Icons.history_toggle_off_rounded, size: 20),
-      title: Text(action, style: AppTextStyles.labelLg),
-      subtitle: Text(user, style: AppTextStyles.bodySm),
-      trailing: Text(time, style: AppTextStyles.bodySm),
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final entries = await AuditService.instance.fetchRecent(limit: 100);
+      if (!mounted) return;
+      setState(() {
+        _entries = entries;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  /// `inventory.adjust` -> `Inventory adjust`.
+  static String _actionLabel(String action) {
+    final text = action.replaceAll('.', ' ').replaceAll('_', ' ');
+    return text.isEmpty ? action : text[0].toUpperCase() + text.substring(1);
+  }
+
+  String _branchName(String? id) {
+    if (id == null) return 'No branch';
+    for (final b in kBranches) {
+      if (b.id == id) return b.name;
+    }
+    return 'Unknown branch';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: DataStateView(
+        isLoading: _loading,
+        error: _error,
+        isEmpty: _entries.isEmpty,
+        onRetry: _load,
+        emptyIcon: Icons.history_toggle_off_rounded,
+        emptyTitle: 'No audit entries yet.',
+        emptyMessage: 'Actions such as stock adjustments and price changes appear here.',
+        builder: (context) => ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(AppSpacing.md),
+          children: [
+            Text('Enterprise Audit Logs', style: AppTextStyles.labelSm),
+            const SizedBox(height: 10),
+            for (final e in _entries)
+              ListTile(
+                leading: const Icon(Icons.history_toggle_off_rounded, size: 20),
+                title: Text(_actionLabel(e.action), style: AppTextStyles.labelLg),
+                subtitle: Text(
+                  '${_branchName(e.branchId)} • ${e.entityType}'
+                  '${e.entityId == null ? '' : ' ${e.entityId!.length > 8 ? e.entityId!.substring(0, 8) : e.entityId}'}'
+                  ' • staff ${e.staffFirebaseUid.length > 6 ? e.staffFirebaseUid.substring(0, 6) : e.staffFirebaseUid}',
+                  style: AppTextStyles.bodySm,
+                ),
+                trailing: Text(_time.format(e.createdAt), style: AppTextStyles.bodySm),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

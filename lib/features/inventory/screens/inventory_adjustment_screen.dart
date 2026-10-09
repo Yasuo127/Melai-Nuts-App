@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import '../../../app/routes.dart';
 import '../../../core/theme/app_colors.dart';
@@ -6,6 +8,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/utils/request_key.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../data/repositories/staff_repository.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
@@ -31,6 +34,7 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
   bool _saving = false;
   final _reasonController = TextEditingController();
   String _reasonPreset = 'Stock count correction';
+  final _requestKey = RequestKeyHolder();
 
   int get _rawNewStock => widget.batch.quantity + _adjustment;
   int get _newStock => _rawNewStock.clamp(0, 999999);
@@ -56,6 +60,11 @@ class _InventoryAdjustmentScreenState extends State<InventoryAdjustmentScreen> {
         delta: _adjustment,
         reason: _reasonPreset,
         note: _reasonController.text,
+        // One key per distinct request: a retry after a timeout reuses it, so
+        // the server applies the adjustment once even if the first try landed.
+        idempotencyKey: _requestKey.keyFor(
+          jsonEncode([widget.batch.id, _adjustment, _reasonPreset, _reasonController.text.trim()]),
+        ),
       );
       if (!mounted) return;
       StaffStore.instance.refreshLive();

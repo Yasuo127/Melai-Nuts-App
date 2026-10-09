@@ -12,19 +12,25 @@ rules_version = '2';
 // Roles (existing): customer, staff, owner, delivery. Owner is a superset of
 // staff, as in the previous rules. Default for anything not matched: DENY.
 //
-// STATUS OF EACH COLLECTION
-//   users        -> used by the app today (auth profile). Rules are exact.
-//   products, inventory, orders, deliveries, refunds
-//                -> the app currently keeps these in memory (prototype data)
-//                   and does not read/write them in Firestore yet. Rules below
-//                   are least-privilege for the field names in lib/data/models
-//                   (customerId, branch, status, quantity, riderId, ...).
-//                   Re-verify field names when those collections are wired up.
+// COLLECTIONS
+//   users  -> the ONLY Firestore collection the app uses (auth profile / role).
+//             Rules are exact; see below.
+//   anything else (products, inventory, orders, deliveries, refunds, ...)
+//          -> DENIED to everyone, including owners. Business data lives in
+//             Supabase Postgres (RLS + SECURITY DEFINER functions); the app
+//             never reads or writes these in Firestore. Leaving live rules on
+//             unused collections only gave signed-in users a place to write
+//             junk, and the old refunds rule let ANY staff member read every
+//             branch's refunds. The previous rules are archived, with the
+//             fixes needed before reuse, in docs/firestore-dormant-collections.md.
+//             Do not re-open a collection without adding tests for it.
+//
+// ACCOUNT DEACTIVATION: `isActive: false` here only stops Firestore access. To
+// actually cut an account off (Supabase access, new sign-ins, existing
+// sessions) use functions/deactivate-user.js; the sign-in blocking function in
+// functions/index.js refuses sign-in for any user whose profile is inactive.
 //
 // DEPLOY:  firebase deploy --only firestore:rules   (firebase.json points here)
-// NOTE: staff queries on branch-scoped collections must filter by their own
-//       branch (where('branch', isEqualTo: <their branch>)) or Firestore will
-//       reject the query — that is the rules working as intended.
 // =============================================================================
 
 service cloud.firestore {
@@ -60,16 +66,6 @@ service cloud.firestore {
     }
 
     function isOwner()    { return hasRole('owner'); }
-    function isStaff()    { return hasRole('staff'); }
-    function isRider()    { return hasRole('delivery'); }
-    function isCustomer() { return hasRole('customer'); }
-    function isStaffOrOwner() { return isStaff() || isOwner(); }
-
-    // Owner sees every branch; staff only their own assigned branch.
-    function inMyBranch(branch) {
-      return isOwner() ||
-             (isStaff() && me().get('branch', null) != null && me().get('branch', null) == branch);
-    }
 
     function validRole(role) {
       return role in ['customer', 'staff', 'owner', 'delivery'];
@@ -152,102 +148,8 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
-    // --------------------------------------------------------------- products
-    // Public catalog (guests browse the store). Only the Owner manages
-    // products, prices and variants — Staff cannot change prices.
-    match /products/{productId} {
-      allow read: if true;
-      allow create, update, delete: if isOwner();
-    }
-
-    // -------------------------------------------------------------- inventory
-    // Branch-scoped stock. Staff read/adjust only their own branch's batches;
-    // Owner all branches. Riders and customers have no access.
-    match /inventory/{batchId} {
-      allow read: if isStaffOrOwner() && inMyBranch(resource.data.branch);
-
-      allow create: if isStaffOrOwner() &&
-        inMyBranch(request.resource.data.branch) &&
-        request.resource.data.quantity is int &&
-        request.resource.data.quantity >= 0;
-
-      // Branch cannot be changed by staff (no moving stock to another branch).
-      allow update: if isStaffOrOwner() &&
-        inMyBranch(resource.data.branch) &&
-        inMyBranch(request.resource.data.branch) &&
-        (isOwner() || request.resource.data.branch == resource.data.branch) &&
-        request.resource.data.quantity is int &&
-        request.resource.data.quantity >= 0;
-
-      allow delete: if isOwner();
-    }
-
-    // ----------------------------------------------------------------- orders
-    // Money/ownership fields are set at creation and are immutable for
-    // everyone except the Owner. NOTE: line-item prices are supplied by the
-    // client; rules cannot recompute totals from arrays. Enforcing price
-    // integrity needs a Cloud Function (see SECURITY.md).
-    match /orders/{orderId} {
-      allow read: if isOwner() ||
-        (isStaff() && inMyBranch(resource.data.branch)) ||
-        (isRider() && resource.data.get('riderId', null) == request.auth.uid) ||
-        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
-
-      // A customer can only create an order for THEMSELVES, in 'pending', and
-      // cannot pre-assign a rider. Staff create counter (POS) orders for their
-      // own branch.
-      allow create:
-        if (isCustomer() &&
-              request.resource.data.customerId == request.auth.uid &&
-              request.resource.data.status == 'pending' &&
-              !request.resource.data.keys().hasAny(['riderId']))
-        || (isStaffOrOwner() &&
-              inMyBranch(request.resource.data.branch) &&
-              request.resource.data.status in ['pending', 'confirmed', 'completed']);
-
-      // Staff: status only, own branch. Assigned rider: status only, and only
-      // to out-for-delivery / completed. Owner: full edit.
-      allow update: if isOwner() ||
-        (isStaff() && inMyBranch(resource.data.branch) &&
-          changedKeys().hasOnly(['status', 'updatedAt']) &&
-          request.resource.data.status in
-            ['pending', 'confirmed', 'preparing', 'outForDelivery', 'completed', 'cancelled']) ||
-        (isRider() && resource.data.get('riderId', null) == request.auth.uid &&
-          changedKeys().hasOnly(['status', 'updatedAt']) &&
-          request.resource.data.status in ['outForDelivery', 'completed']);
-
-      allow delete: if isOwner();
-    }
-
-    // -------------------------------------------------------------- deliveries
-    // The Owner dispatches deliveries; the assigned rider updates progress.
-    match /deliveries/{deliveryId} {
-      allow read: if isOwner() ||
-        (isStaff() && inMyBranch(resource.data.get('branch', null))) ||
-        (isRider() && resource.data.get('riderId', null) == request.auth.uid) ||
-        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
-
-      allow create, delete: if isOwner();
-
-      allow update: if isOwner() ||
-        (isRider() && resource.data.get('riderId', null) == request.auth.uid &&
-          changedKeys().hasOnly(['status', 'stops', 'updatedAt']));
-    }
-
-    // ---------------------------------------------------------------- refunds
-    // Customers request refunds for themselves; only the Owner decides them.
-    match /refunds/{refundId} {
-      allow read: if isStaffOrOwner() ||
-        (isCustomer() && resource.data.get('customerId', null) == request.auth.uid);
-
-      allow create: if isCustomer() &&
-        request.resource.data.customerId == request.auth.uid &&
-        request.resource.data.status == 'pending';
-
-      allow update, delete: if isOwner();
-    }
-
     // ---------------------------------------------------------- default: deny
+    // Every collection other than `users` (see header) lands here.
     match /{document=**} {
       allow read, write: if false;
     }

@@ -7,7 +7,7 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/widgets/secondary_button.dart';
 import '../../../core/widgets/staff_data_scope.dart';
-import '../../../data/dummy_data/dummy_inventory.dart';
+import '../../../core/widgets/state_views.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../widgets/fefo_badge.dart';
 import '../widgets/inventory_card.dart';
@@ -21,27 +21,49 @@ class FefoScreen extends StatelessWidget {
   const FefoScreen({super.key, this.initialFilter});
 
   /// Staff only work in one branch; the list holds the branch being viewed.
-  List<String> _branches() {
-    final name = StaffStore.instance.activeBranchName;
+  List<String> _branches(StaffStore store) {
+    final name = store.activeBranchName;
     return name.isEmpty ? const [] : [name];
   }
 
   @override
   Widget build(BuildContext context) {
-    return StaffDataScope(builder: (context, store) => _content(context));
+    return StaffDataScope(builder: (context, store) => _content(context, store));
   }
 
-  Widget _content(BuildContext context) {
+  /// Loading / error / empty / retry handling for the live batch list, so a
+  /// slow or failed request is never shown as "0 batches".
+  Widget _withState(StaffStore store, WidgetBuilder builder) {
+    return RefreshIndicator(
+      onRefresh: store.refreshInventory,
+      child: DataStateView(
+        isLoading: store.inventoryState.busy,
+        error: store.inventoryState.error,
+        isEmpty: store.batches.isEmpty,
+        onRetry: store.refreshInventory,
+        emptyIcon: Icons.timeline_rounded,
+        emptyTitle: 'No batches yet.',
+        emptyMessage: 'Receive stock to start tracking expiry dates (FEFO).',
+        builder: builder,
+      ),
+    );
+  }
+
+  List<InventoryBatch> _byPriority(StaffStore store, FefoPriority priority) =>
+      store.batches.where((b) => b.fefoPriority == priority).toList();
+
+  Widget _content(BuildContext context, StaffStore store) {
     // A specific tier was requested (e.g. tapped from the dashboard's
     // "Expiring Soon" stat) — show just that tier's batch list.
     if (initialFilter != null) {
       final priority = initialFilter!;
-      final batches = batchesByPriority(priority);
+      final batches = _byPriority(store, priority);
       return Scaffold(
         backgroundColor: AppColors.canvas,
         appBar: MelaiAppBar(title: '${priority.label} Priority Batches', showBack: true),
         body: SafeArea(
-          child: ListView(
+          child: _withState(store, (context) => ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(AppSpacing.md),
             children: [
               Row(
@@ -66,7 +88,7 @@ class FefoScreen extends StatelessWidget {
                   child: Center(child: Text('No batches in this tier.', style: AppTextStyles.bodyMd)),
                 ),
             ],
-          ),
+          )),
         ),
       );
     }
@@ -76,7 +98,8 @@ class FefoScreen extends StatelessWidget {
       backgroundColor: AppColors.canvas,
       appBar: const MelaiAppBar(title: 'FEFO Overview', showBack: true),
       body: SafeArea(
-        child: ListView(
+        child: _withState(store, (context) => ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppSpacing.md),
           children: [
             Container(
@@ -107,7 +130,7 @@ class FefoScreen extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _PriorityTierRow(
                   priority: priority,
-                  count: batchesByPriority(priority).length,
+                  count: _byPriority(store, priority).length,
                   onTap: () => Navigator.of(context).pushNamed(
                     AppRoutes.inventoryFefo,
                     arguments: priority,
@@ -117,11 +140,12 @@ class FefoScreen extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
             Text('Stock by Branch', style: AppTextStyles.headlineSm),
             const SizedBox(height: AppSpacing.sm),
-            for (final branch in _branches())
+            for (final branch in _branches(store))
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _BranchSummaryRow(
                   branch: branch,
+                  batches: store.batches,
                   onTap: () => Navigator.of(context).pushNamed(AppRoutes.inventoryBranch, arguments: branch),
                 ),
               ),
@@ -132,7 +156,7 @@ class FefoScreen extends StatelessWidget {
               onPressed: () => Navigator.of(context).pushNamed(AppRoutes.inventoryList),
             ),
           ],
-        ),
+        )),
       ),
     );
   }
@@ -180,13 +204,13 @@ class _PriorityTierRow extends StatelessWidget {
 
 class _BranchSummaryRow extends StatelessWidget {
   final String branch;
+  final List<InventoryBatch> batches;
   final VoidCallback onTap;
 
-  const _BranchSummaryRow({required this.branch, required this.onTap});
+  const _BranchSummaryRow({required this.branch, required this.batches, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final batches = batchesForBranch(branch);
     final units = batches.fold<int>(0, (sum, b) => sum + b.quantity);
     return InkWell(
       onTap: onTap,

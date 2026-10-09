@@ -13,7 +13,8 @@
 |---|---|---|
 | Who you are | Firebase Auth | Firebase |
 | Your role / branch / active flag | `users/{uid}` document, read **server-side** by rules | `firestore.rules` |
-| Who can read/write each Firestore collection | Firestore Security Rules | `firestore.rules` (deploy it!) |
+| Who can read/write Firestore | Firestore Security Rules: only `users` is open; **every other collection is denied to everyone** | `firestore.rules` (deploy it!) |
+| Whether a deactivated account can sign in | `supabaseRoleOnSignIn` blocking function (server-side), plus the app's own check | `functions/index.js` |
 | Who can read/write each Supabase table / call each function | Postgres grants + RLS + `SECURITY DEFINER` functions | `supabase/schema.sql` then `supabase/migrations/*.sql` |
 | Prices, totals, stock, points, refund amounts | Server-side SQL functions/triggers | `place_order`, `request_refund`, triggers |
 | Screens shown for a role | `RouteGuard` (UX / defence-in-depth only) | `lib/app/route_guard.dart` |
@@ -72,6 +73,24 @@ A modified app can bypass anything in Dart. It cannot bypass Firestore rules or 
    with the *debug* key and uses `com.example.*`. Set a real applicationId and a
    release keystore (kept out of Git — `.gitignore` covers `*.jks`, `key.properties`).
    Build releases with `--obfuscate --split-debug-info=...`.
+
+## Deactivating an account
+
+Three layers, because each stops something different:
+
+| Layer | Stops | Takes effect |
+|---|---|---|
+| App "User Management" screen (`setAccountActive`) | Staff/owner/rider data access (it updates the **Supabase staff registry first**, then `users/{uid}.isActive`) | Immediately |
+| `supabaseRoleOnSignIn` blocking function | **New sign-ins** of any account whose profile has `isActive` present and not `true`. This replaces reliance on the app's own client-side check, which a modified app can skip. A missing profile is allowed (registration), and a Firestore outage does not lock everyone out (it fails open and logs) | At next sign-in |
+| `functions/deactivate-user.js <uid>` | Disables the Firebase Auth user and **revokes refresh tokens**, then flags the profile. Use it for **customers** (the app cannot deactivate them) and in emergencies | Existing ID tokens live up to 1 hour |
+
+The blocking function does **not** run when an existing session refreshes its token, so on its
+own it cannot end a live session; that is what the script's disable + revoke is for. The script
+refuses to deactivate an owner without `--allow-owner` and never deactivates the last active
+owner. For staff and owners prefer the app screen (the script has no Supabase credentials).
+
+Tests: `cd functions && npm install && npm test` (runs offline) and
+`cd firestore-tests && npm install && npm test` (needs Java and the Firestore emulator).
 
 ## Supabase (customer data) — setup and guarantees
 
@@ -281,5 +300,7 @@ in `.gitignore`) and restrict the keys in the Google Cloud console.
   MFA needs Firebase MFA (Identity Platform) or a `local_auth` flow.
 - The Firestore offline cache is not encrypted at rest by Firestore. It is
   size-bounded and wiped at app start when no user is signed in.
-- Order/price integrity is now enforced in Postgres (`place_order`, `request_refund`);
-  the Firestore `orders`/`payments` rules from the prototype are no longer used by the app.
+- Order/price integrity is now enforced in Postgres (`place_order`, `request_refund`).
+  The prototype's Firestore `products`/`inventory`/`orders`/`deliveries`/`refunds` rules were
+  removed (those collections are now denied to everyone); they are archived, with their
+  known defects, in `docs/firestore-dormant-collections.md`.

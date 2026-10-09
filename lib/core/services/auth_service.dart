@@ -943,6 +943,13 @@ class AuthService {
             'Add the Android SHA-1 and SHA-256 fingerprints in the Firebase '
             'project settings and re-download google-services.json.';
       case 'internal-error':
+        // The sign-in blocking function (functions/index.js) refuses deactivated
+        // accounts; Firebase reports that as `internal-error` with the function's
+        // message inside. Keep the marker in sync with functions/lib/handlers.js.
+        if ((e.message ?? '').contains('ACCOUNT_DEACTIVATED')) {
+          return 'This account has been deactivated. Please contact your administrator.';
+        }
+        return 'This sign-in method is not available right now. Please try again later.';
       case 'operation-not-allowed':
         return 'This sign-in method is not available right now. Please try again later.';
       default:

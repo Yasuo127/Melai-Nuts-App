@@ -1,150 +1,236 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:melai_nuts/data/catalog_store.dart';
+import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../core/utils/app_error.dart';
 import '../../../core/widgets/melai_app_bar.dart';
-import '../../../data/dummy_data/dummy_inventory.dart';
-import 'package:melai_nuts/data/catalog_store.dart';
-import '../../../data/dummy_data/dummy_sales.dart';
+import '../../../core/widgets/staff_data_scope.dart';
+import '../../../data/models/branch.dart';
 import '../../../data/models/inventory_batch.dart';
-import '../widgets/sales_chart.dart';
+import '../../../data/models/owner_sales.dart';
+import '../../../data/repositories/staff_repository.dart';
 import '../widgets/stat_card.dart';
 
-/// Deep-dive into a single branch's performance — revenue trend, top
-/// products stocked there, and current inventory/FEFO status.
-class BranchPerformanceScreen extends StatelessWidget {
+/// Deep-dive into one branch: its details, real sales figures from the
+/// database (`owner_sales_summary`) and its current inventory / FEFO status.
+///
+/// Opening the screen points the owner's live inventory at this branch, so the
+/// stock figures below always describe the branch in the title.
+class BranchPerformanceScreen extends StatefulWidget {
   final String branch;
 
   const BranchPerformanceScreen({super.key, required this.branch});
 
   @override
+  State<BranchPerformanceScreen> createState() => _BranchPerformanceScreenState();
+}
+
+class _BranchPerformanceScreenState extends State<BranchPerformanceScreen> {
+  static final _money = NumberFormat('#,##0.00');
+
+  bool _loading = true;
+  Object? _error;
+  OwnerBranchSales? _sales;
+
+  Branch? get _branch {
+    for (final b in kBranches) {
+      if (b.name == widget.branch) return b;
+    }
+    return null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final branch = _branch;
+    if (branch != null) {
+      StaffStore.instance.setOwnerBranch(branch.id);
+    }
+    _load();
+  }
+
+  Future<void> _load() async {
+    final branch = _branch;
+    if (branch == null) {
+      setState(() => _loading = false);
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final summary = await StaffRepository.instance.getOwnerSalesSummary(days: 7);
+      if (!mounted) return;
+      OwnerBranchSales? match;
+      for (final s in summary.branches) {
+        if (s.branchId == branch.id) match = s;
+      }
+      setState(() {
+        _sales = match;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final sales = findBranchSales(branch);
-    final batches = batchesForBranch(branch);
-    final lowStock = batches.where((b) => b.isLowStock).length;
-    final highPriority = batches.where((b) => b.fefoPriority == FefoPriority.high).length;
-    final stockedProducts = batches.map((b) => b.productId).toSet().map(findProductById).toList()
-      ..sort((a, b) => b.monthlyRevenue.compareTo(a.monthlyRevenue));
+    final branch = _branch;
+    if (branch == null) {
+      return Scaffold(
+        backgroundColor: AppColors.canvas,
+        appBar: MelaiAppBar(title: widget.branch, showBack: true),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Text('This branch could not be found.', textAlign: TextAlign.center, style: AppTextStyles.bodyMd),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return StaffDataScope(builder: (context, store) => _content(context, store, branch));
+  }
+
+  Widget _content(BuildContext context, StaffStore store, Branch branch) {
+    final sales = _sales;
+    final inventoryForThisBranch = store.activeBranchId == branch.id && store.inventoryState.loaded;
+    final lowStock = store.batches.where((b) => b.isLowStock).length;
+    final highPriority = store.batches.where((b) => b.fefoPriority == FefoPriority.high).length;
+    final avgToday = sales == null || sales.ordersToday == 0 ? 0.0 : sales.todayRevenue / sales.ordersToday;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: MelaiAppBar(title: branch, showBack: true),
+      appBar: MelaiAppBar(title: branch.name, showBack: true),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-              child: Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(color: AppColors.roleOwner.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
-                    child: const Icon(Icons.storefront_rounded, color: AppColors.roleOwner),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Branch Lead: ${sales.topPerformer}', style: AppTextStyles.labelLg),
-                        Text(sales.leadContact, style: AppTextStyles.bodySm),
-                      ],
+        child: RefreshIndicator(
+          onRefresh: () async {
+            await Future.wait([_load(), store.refreshInventory()]);
+          },
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(AppSpacing.md),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(color: AppColors.roleOwner.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+                      child: const Icon(Icons.storefront_rounded, color: AppColors.roleOwner),
                     ),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Simulated: calling ${sales.leadContact}')),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(branch.address.isEmpty ? 'No address on file' : branch.address, style: AppTextStyles.labelLg),
+                          if ((branch.contactPhone ?? '').isNotEmpty) Text(branch.contactPhone!, style: AppTextStyles.bodySm),
+                          if ((branch.operatingHours ?? '').isNotEmpty) Text(branch.operatingHours!, style: AppTextStyles.bodySm),
+                          Text(branch.isActive ? 'Open for orders' : 'Temporarily closed', style: AppTextStyles.bodySm),
+                        ],
+                      ),
                     ),
-                    icon: const Icon(Icons.call_outlined, size: 16),
-                    label: const Text('Call'),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 1.6,
-              children: [
-                OwnerStatCard(label: "Today's Revenue", value: '₱${sales.todayRevenue.toStringAsFixed(0)}', icon: Icons.payments_outlined),
-                OwnerStatCard(label: 'Orders Today', value: '${sales.ordersToday}', sub: 'Avg ₱${sales.avgOrderValue.toStringAsFixed(0)}', icon: Icons.receipt_long_outlined),
-                OwnerStatCard(
-                  label: 'YoY Growth',
-                  value: '${sales.yoyGrowthPercent >= 0 ? '+' : ''}${sales.yoyGrowthPercent.toStringAsFixed(1)}%',
-                  icon: Icons.trending_up_rounded,
-                  valueColor: AppColors.success,
-                ),
-                OwnerStatCard(
-                  label: 'Stock Health',
-                  value: '${sales.stockHealthPercent.toStringAsFixed(1)}%',
-                  icon: Icons.inventory_2_outlined,
-                  valueColor: sales.stockHealthPercent >= 95 ? AppColors.success : AppColors.warning,
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Weekly Revenue Trend', style: AppTextStyles.headlineSm),
-            const SizedBox(height: AppSpacing.sm),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-              child: SalesBarChart(points: kWeeklyRevenueSeries),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Inventory & FEFO Status', style: AppTextStyles.headlineSm),
-            const SizedBox(height: AppSpacing.sm),
-            Row(
-              children: [
-                Expanded(
-                  child: OwnerStatCard(
-                    label: 'Low Stock',
-                    value: '$lowStock SKUs',
-                    icon: Icons.warning_amber_rounded,
-                    highlight: lowStock > 0,
-                    valueColor: lowStock > 0 ? AppColors.error : null,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OwnerStatCard(
-                    label: 'Expiring Soon',
-                    value: '$highPriority Batches',
-                    icon: Icons.hourglass_bottom_rounded,
-                    highlight: highPriority > 0,
-                    valueColor: highPriority > 0 ? AppColors.error : null,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Top Products at This Branch', style: AppTextStyles.headlineSm),
-            const SizedBox(height: AppSpacing.sm),
-            for (final p in stockedProducts.take(5))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
+              const SizedBox(height: AppSpacing.lg),
+              Text('Sales', style: AppTextStyles.headlineSm),
+              const SizedBox(height: AppSpacing.sm),
+              if (sales == null)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border)),
-                  child: Row(
-                    children: [
-                      Icon(p.icon, color: p.color, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(p.name, style: AppTextStyles.bodyMd, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                      Text('₱${p.price.toStringAsFixed(0)}', style: AppTextStyles.labelLg),
-                    ],
-                  ),
+                  child: _loading
+                      ? const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator()))
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _error is AppError ? (_error as AppError).message : 'Sales figures are unavailable for this branch.',
+                              style: AppTextStyles.bodyMd,
+                            ),
+                            const SizedBox(height: 8),
+                            OutlinedButton(onPressed: _load, child: const Text('Retry')),
+                          ],
+                        ),
+                )
+              else
+                GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 1.6,
+                  children: [
+                    OwnerStatCard(label: "Today's Revenue", value: '₱${_money.format(sales.todayRevenue)}', icon: Icons.payments_outlined),
+                    OwnerStatCard(label: 'Orders Today', value: '${sales.ordersToday}', sub: 'Avg ₱${_money.format(avgToday)}', icon: Icons.receipt_long_outlined),
+                    OwnerStatCard(label: 'Last 7 Days', value: '₱${_money.format(sales.weekRevenue)}', icon: Icons.calendar_view_week_rounded),
+                    OwnerStatCard(label: 'Orders (7 Days)', value: '${sales.ordersWeek}', sub: 'Completed orders', icon: Icons.shopping_bag_outlined),
+                  ],
                 ),
-              ),
-            if (stockedProducts.isEmpty)
-              Text('No inventory batches recorded for this branch yet.', style: AppTextStyles.bodyMd),
-          ],
+              const SizedBox(height: AppSpacing.lg),
+              Text('Inventory & FEFO Status', style: AppTextStyles.headlineSm),
+              const SizedBox(height: AppSpacing.sm),
+              if (!inventoryForThisBranch)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border)),
+                  child: store.inventoryState.error != null
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Could not load this branch\'s inventory.', style: AppTextStyles.bodyMd),
+                            const SizedBox(height: 8),
+                            OutlinedButton(onPressed: store.refreshInventory, child: const Text('Retry')),
+                          ],
+                        )
+                      : const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator())),
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: OwnerStatCard(
+                        label: 'Low Stock',
+                        value: '$lowStock SKUs',
+                        icon: Icons.warning_amber_rounded,
+                        highlight: lowStock > 0,
+                        valueColor: lowStock > 0 ? AppColors.error : null,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OwnerStatCard(
+                        label: 'Expiring Soon',
+                        value: '$highPriority Batches',
+                        icon: Icons.hourglass_bottom_rounded,
+                        highlight: highPriority > 0,
+                        valueColor: highPriority > 0 ? AppColors.error : null,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
         ),
       ),
     );

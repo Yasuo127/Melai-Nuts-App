@@ -63,13 +63,6 @@ import '../features/products/screens/edit_product_screen.dart';
 import '../features/products/screens/product_variants_screen.dart';
 import '../features/products/screens/product_pricing_screen.dart';
 import '../features/products/screens/product_performance_screen.dart';
-import '../features/ocr/screens/ocr_capture_screen.dart';
-import '../features/ocr/screens/ocr_preview_screen.dart';
-import '../features/ocr/screens/ocr_processing_screen.dart';
-import '../features/ocr/screens/ocr_verify_screen.dart';
-import '../features/ocr/screens/ocr_success_screen.dart';
-import '../features/ocr/screens/ocr_error_screen.dart';
-import '../features/ocr/ocr_scan_result.dart';
 import '../features/owner/screens/owner_portal_screen.dart';
 import '../features/owner/screens/user_management_screen.dart';
 import '../features/owner/screens/owner_dashboard_screen.dart';
@@ -77,7 +70,6 @@ import '../features/owner/screens/business_overview_screen.dart';
 import '../features/owner/screens/sales_overview_screen.dart';
 import '../features/owner/screens/sales_analytics_screen.dart';
 import '../features/owner/screens/sales_trends_screen.dart';
-import '../features/owner/screens/sales_forecast_screen.dart';
 import '../features/owner/screens/branch_comparison_screen.dart';
 import '../features/owner/screens/branch_performance_screen.dart';
 import '../features/owner/screens/product_performance_screen.dart';
@@ -261,13 +253,6 @@ class AppRoutes {
   static const String productPricing = '/products/pricing';
   static const String productPerformance = '/products/performance';
 
-  // OCR (simulated) feature screens (lib/features/ocr/).
-  static const String ocrCapture = '/ocr/capture';
-  static const String ocrPreview = '/ocr/preview';
-  static const String ocrProcessing = '/ocr/processing';
-  static const String ocrVerify = '/ocr/verify';
-  static const String ocrSuccess = '/ocr/success';
-  static const String ocrError = '/ocr/error';
 
   static const String ownerUserManagement = '/owner/users';
 
@@ -277,7 +262,6 @@ class AppRoutes {
   static const String ownerSalesOverview = '/owner/sales-overview';
   static const String ownerSalesAnalytics = '/owner/sales-analytics';
   static const String ownerSalesTrends = '/owner/sales-trends';
-  static const String ownerSalesForecast = '/owner/sales-forecast';
   static const String ownerBranchComparison = '/owner/branch-comparison';
   static const String ownerBranchPerformance = '/owner/branch-performance';
   static const String ownerProductPerformance = '/owner/product-performance';
@@ -297,7 +281,7 @@ class AppRoutes {
   // Public catalog browsing: guests and customers only.
   static const _Access _customerBrowse = _Access({UserRole.customer}, guest: true);
   // Owner is a superset of staff (matches firestore.rules); the Owner portal
-  // also links into the inventory / OCR screens.
+  // also links into the inventory screens.
   static const _Access _staff = _Access({UserRole.staff, UserRole.owner});
   // Staff screens that only make sense with a management permission. Owners
   // hold every permission. UX gate only: the staff RPCs enforce the same rule.
@@ -383,12 +367,6 @@ class AppRoutes {
     inventoryReceive: _staffManageInventory,
     inventoryTransfers: _staff,
     staffRefunds: _staffManageRefunds,
-    ocrCapture: _staff,
-    ocrPreview: _staff,
-    ocrProcessing: _staff,
-    ocrVerify: _staff,
-    ocrSuccess: _staff,
-    ocrError: _staff,
 
     ownerHome: _owner,
     ownerUserManagement: _owner,
@@ -397,7 +375,6 @@ class AppRoutes {
     ownerSalesOverview: _owner,
     ownerSalesAnalytics: _owner,
     ownerSalesTrends: _owner,
-    ownerSalesForecast: _owner,
     ownerBranchComparison: _owner,
     ownerBranchPerformance: _owner,
     ownerProductPerformance: _owner,
@@ -553,11 +530,6 @@ class AppRoutes {
     // take a productId argument and are handled exclusively in
     // onGenerateRoute below (see the earlier note on route shadowing).
 
-    ocrCapture: (_) => const OcrCaptureScreen(),
-    ocrPreview: (_) => const OcrPreviewScreen(),
-    ocrError: (_) => const OcrErrorScreen(),
-    // NOTE: ocrProcessing, ocrVerify, and ocrSuccess take arguments and are
-    // handled exclusively in onGenerateRoute below.
     // NOTE: inventoryBranch, inventoryProductDetails, inventoryFefo,
     // inventoryBatchDetails, and inventoryAdjustment are intentionally NOT
     // registered here — they take (optional or required) arguments and are
@@ -573,7 +545,6 @@ class AppRoutes {
     ownerSalesOverview: (_) => const SalesOverviewScreen(),
     ownerSalesAnalytics: (_) => const SalesAnalyticsScreen(),
     ownerSalesTrends: (_) => const SalesTrendsScreen(),
-    ownerSalesForecast: (_) => const SalesForecastScreen(),
     ownerBranchComparison: (_) => const BranchComparisonScreen(),
     ownerProductPerformance: (_) => const OwnerProductPerformanceScreen(),
     // NOTE: ownerBranchPerformance takes a branch-name argument and is
@@ -747,21 +718,6 @@ class AppRoutes {
         final productId = settings.arguments as String;
         return MaterialPageRoute(
           builder: (_) => ProductPricingScreen(productId: productId),
-        );
-      case ocrProcessing:
-        final simulateFailure = settings.arguments as bool? ?? false;
-        return MaterialPageRoute(
-          builder: (_) => OcrProcessingScreen(simulateFailure: simulateFailure),
-        );
-      case ocrVerify:
-        final result = settings.arguments as OcrScanResult;
-        return MaterialPageRoute(
-          builder: (_) => OcrVerifyScreen(result: result),
-        );
-      case ocrSuccess:
-        final result = settings.arguments as OcrScanResult;
-        return MaterialPageRoute(
-          builder: (_) => OcrSuccessScreen(result: result),
         );
       case ownerBranchPerformance:
         final branch = settings.arguments as String;
