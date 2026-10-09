@@ -12,8 +12,8 @@ import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/product.dart';
 
 /// Editable pricing form for one product's variants — live margin
-/// recalculation as COGS/SRP change. Frontend-only: "Save Pricing" just
-/// confirms and pops back, nothing is persisted.
+/// recalculation as COGS/SRP change. "Save Pricing" writes the prices to
+/// Supabase through `staff_save_product` and reloads the shared catalog.
 class ProductPricingScreen extends StatefulWidget {
   final String productId;
 

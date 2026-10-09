@@ -7,7 +7,6 @@ import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/widgets/staff_data_scope.dart';
 import '../../../core/widgets/state_views.dart';
-import '../../../data/dummy_data/dummy_inventory.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../widgets/inventory_card.dart';
 
@@ -40,7 +39,8 @@ class InventoryDashboardBody extends StatelessWidget {
     final items = store.inventoryItems;
     final lowItems = items.where((i) => i.needsRestock).toList()
       ..sort((a, b) => a.quantity.compareTo(b.quantity));
-    final expiringSoonCount = batchesByPriority(FefoPriority.high).length;
+    final expiringSoonCount =
+        store.batches.where((b) => b.fefoPriority == FefoPriority.high).length;
     final totalUnits = items.fold<int>(0, (sum, i) => sum + i.quantity);
 
     return ListView(

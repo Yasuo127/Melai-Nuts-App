@@ -6,15 +6,20 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
+import '../../../core/services/staff_store.dart';
 import '../../../core/widgets/staff_data_scope.dart';
-import '../../../data/dummy_data/dummy_inventory.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/inventory_batch.dart';
 import '../widgets/fefo_badge.dart';
 import '../widgets/stock_status_badge.dart';
 
 /// Full detail for a single batch, including whether it's the "FEFO Next
-/// to Sell" batch for its product (the one expiring soonest).
+/// to Sell" batch for its variant at this branch (the one expiring soonest,
+/// which is the one the server consumes first).
+///
+/// The [batch] route argument is only the starting point: the screen always
+/// shows the latest copy from the live inventory, so it reflects stock
+/// adjustments and sales made while it is open.
 class BatchDetailsScreen extends StatelessWidget {
   final InventoryBatch batch;
 
@@ -22,14 +27,52 @@ class BatchDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StaffDataScope(builder: (context, store) => _content(context, store.canManageInventory));
+    return StaffDataScope(builder: (context, store) => _content(context, store));
   }
 
-  Widget _content(BuildContext context, bool canManage) {
+  Widget _content(BuildContext context, StaffStore store) {
+    final canManage = store.canManageInventory;
+    InventoryBatch? live;
+    for (final b in store.batches) {
+      if (b.id == this.batch.id) {
+        live = b;
+        break;
+      }
+    }
+
+    // The inventory has loaded and this batch is no longer in it (e.g. it
+    // was removed or belongs to another branch) — say so instead of showing
+    // out-of-date numbers.
+    if (live == null && store.inventoryState.loaded) {
+      return Scaffold(
+        backgroundColor: AppColors.canvas,
+        appBar: const MelaiAppBar(title: 'Batch Details', showBack: true),
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Text(
+                'This batch is no longer in the inventory for this branch.',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.bodyMd,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final batch = live ?? this.batch;
     final product = findProductById(batch.productId);
-    final siblings = batchesForProduct(batch.productId)
+    final inventoryItem = store.itemByVariant(batch.variantId);
+    final productName = inventoryItem?.productName ?? product.name;
+
+    // FEFO is per variant at the branch, and empty batches are skipped.
+    final siblings = store.batches
+        .where((b) => b.variantId == batch.variantId && b.quantity > 0)
+        .toList()
       ..sort((a, b) => a.expirationDate.compareTo(b.expirationDate));
-    final isNextToSell = siblings.isNotEmpty && siblings.first.id == batch.id;
+    final isNextToSell = batch.quantity > 0 && siblings.isNotEmpty && siblings.first.id == batch.id;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -83,7 +126,7 @@ class BatchDetailsScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(product.name, style: AppTextStyles.titleMd),
+                            Text(productName, style: AppTextStyles.titleMd),
                             Text('Batch ${batch.batchCode}', style: AppTextStyles.bodySm),
                           ],
                         ),

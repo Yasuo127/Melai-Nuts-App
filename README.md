@@ -87,6 +87,23 @@ row-level-security policies that enforce staff access in the database.
 6. Verify on a dev database with `psql -v ON_ERROR_STOP=1 -f supabase/tests/staff_identity_test.sql`
    and `psql -v ON_ERROR_STOP=1 -f supabase/tests/staff_foundation_test.sql`.
 
+### Later migrations (run in filename order after the staff foundation)
+
+| Migration | What it does |
+|---|---|
+| `20261001000000_staff_product_management.sql` | Staff product/variant/cost management; adds the staff catalog read policy. |
+| `20261001010000_fix_cart_updated_at.sql` | Cart `updated_at` fix. |
+| `20261001020000_seed_loyalty_cart_settings.sql` | Seeds `loyalty_cart_settings`. |
+| `20261008000000_owner_sales_summary.sql` | `owner_sales_summary()` for the owner analytics screens. |
+| `20261008010000_fix_staff_products_policy.sql` | **Required.** Scopes the staff product policy `TO authenticated`; without it signed-out (guest) catalog reads fail. |
+| `20261008020000_staff_idempotency_keys.sql` | Optional `p_idempotency_key` on `staff_adjust_batch` and `staff_request_transfer`: a retry applies once and replays the original result; the same key for a different request is refused. Apply **before** shipping the app build that sends keys. |
+| `20261008030000_staff_replay_safe_receive_and_transfer.sql` | `staff_respond_transfer` (ship / reject / cancel / receive) is idempotent by outcome: asking for the state a transfer is already in succeeds as a no-op (authorization still runs first; conflicting actions still error). `staff_receive_batch` gains the optional `p_idempotency_key`, so a replay returns the original batch instead of "code already exists". Same deploy order as above: migration first. |
+
+Verify with the suites in `supabase/tests/`, including
+`staff_cross_branch_test.sql` (cross-branch isolation, permission flags, replay
+behaviour) and `staff_idempotency_concurrency_test.sh` (simultaneous duplicate
+requests apply once).
+
 ### Staff foundation (migration `20260930010000_staff_foundation.sql`)
 
 Run it right after the staff backend migration (it is idempotent).

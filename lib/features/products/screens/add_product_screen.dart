@@ -10,12 +10,12 @@ import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../../core/widgets/secondary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
-import '../../../data/dummy_data/dummy_inventory.dart';
 
 /// "Add New Product" — matches the prototype's multi-section wizard
 /// (Media, Basic Info, Pricing & Cost, Variants, Branch Availability),
-/// implemented as a single scrollable form for simplicity. Frontend-only:
-/// "Save & Publish" just confirms and pops back — nothing is persisted.
+/// implemented as a single scrollable form. "Save & Publish" creates the
+/// product in Supabase through [StaffRepository.saveProduct] (the database
+/// checks the caller's permission) and then reloads the catalog.
 class AddProductScreen extends StatefulWidget {
   const AddProductScreen({super.key});
 
@@ -31,7 +31,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final _srpController = TextEditingController();
   String? _category;
   bool _hasVariants = false;
-  final Set<String> _selectedBranches = {};
+  final Set<String> _selectedBranchIds = {};
   bool _publishImmediately = true;
   bool _saving = false;
 
@@ -51,7 +51,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_selectedBranches.isEmpty) {
+    if (_selectedBranchIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select at least one branch.')),
       );
@@ -60,7 +60,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
     setState(() => _saving = true);
     try {
-      final branchIds = kBranches.where((b) => _selectedBranches.contains(b.name)).map((b) => b.id).toList();
+      final branchIds = _selectedBranchIds.toList();
       await StaffRepository.instance.saveProduct(
         name: _nameController.text.trim(),
         description: _descriptionController.text.trim(),
@@ -92,9 +92,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
       appBar: AppBar(
         leading: IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.of(context).pop()),
         title: const Text('Add New Product'),
-        actions: [
-          TextButton(onPressed: () {}, child: const Text('Save Draft')),
-        ],
       ),
       body: SafeArea(
         child: Form(
@@ -104,28 +101,24 @@ class _AddProductScreenState extends State<AddProductScreen> {
             children: [
               _SectionCard(
                 title: '1. Product Media & Images',
-                child: InkWell(
-                  onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Simulated: photo picker opened (no backend/storage).')),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
                   ),
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    height: 120,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceContainerLow,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.border, style: BorderStyle.solid),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.add_a_photo_outlined, color: AppColors.textSecondary, size: 28),
-                        const SizedBox(height: 6),
-                        Text('Tap to upload product photo', style: AppTextStyles.bodyMd),
-                        Text('Recommended: 1:1 square, PNG/JPG under 5MB', style: AppTextStyles.bodySm),
-                      ],
-                    ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.image_not_supported_outlined, color: AppColors.textSecondary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Product photos can\'t be uploaded yet. The product will be saved without a photo.',
+                          style: AppTextStyles.bodyMd,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -239,20 +232,32 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 title: '5. Branch Availability',
                 child: Column(
                   children: [
-                    for (final branch in kInventoryBranches)
+                    if (kBranches.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text('Branches have not loaded yet. Go back and try again.', style: AppTextStyles.bodyMd),
+                      ),
+                    for (final branch in kBranches)
                       CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
-                        value: _selectedBranches.contains(branch),
+                        value: _selectedBranchIds.contains(branch.id),
                         activeColor: AppColors.primary,
-                        title: Text(branch, style: AppTextStyles.bodyMd),
+                        title: Text(branch.name, style: AppTextStyles.bodyMd),
                         onChanged: (v) => setState(() {
                           if (v == true) {
-                            _selectedBranches.add(branch);
+                            _selectedBranchIds.add(branch.id);
                           } else {
-                            _selectedBranches.remove(branch);
+                            _selectedBranchIds.remove(branch.id);
                           }
                         }),
                       ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'The product starts with 0 stock in each selected branch. Receive a batch to add stock.',
+                        style: AppTextStyles.bodySm,
+                      ),
+                    ),
                     const Divider(height: 20),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,

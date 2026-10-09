@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
-import '../../../app/routes.dart';
+import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
-import 'package:melai_nuts/data/catalog_store.dart';
-import '../../../data/models/product.dart';
+import '../../../core/widgets/state_views.dart';
+import '../../../data/models/owner_sales.dart';
+import '../../../data/repositories/staff_repository.dart';
 
-/// Owner-facing, company-wide Product Performance ranking — cross-branch
-/// revenue/units/margin view for executive decision-making.
+/// Owner-facing, company-wide product ranking by item sales.
 ///
-/// Named [OwnerProductPerformanceScreen] (rather than
-/// `ProductPerformanceScreen`) because the Product Management feature
-/// (lib/features/products/) already has its own class with that name;
-/// this avoids an ambiguous-import collision in routes.dart.
+/// The numbers come from the `owner_sales_summary` RPC, which the database
+/// computes from completed orders (the app does no revenue maths of its own).
+/// Item sales are quantity x unit price before vouchers and delivery fees, and
+/// products are grouped by the name recorded on the order.
+///
+/// Named [OwnerProductPerformanceScreen] because the Product Management
+/// feature exposes `ProductPerformanceScreen`, which simply shows this one.
 class OwnerProductPerformanceScreen extends StatefulWidget {
   const OwnerProductPerformanceScreen({super.key});
 
@@ -21,118 +24,146 @@ class OwnerProductPerformanceScreen extends StatefulWidget {
   State<OwnerProductPerformanceScreen> createState() => _OwnerProductPerformanceScreenState();
 }
 
-enum _SortBy { revenue, units, margin }
-
 class _OwnerProductPerformanceScreenState extends State<OwnerProductPerformanceScreen> {
-  _SortBy _sortBy = _SortBy.revenue;
+  static const _periods = [7, 30, 90];
+  static final _money = NumberFormat('#,##0.00');
+
+  int _days = 30;
+  bool _loading = true;
+  Object? _error;
+  OwnerSalesSummary? _summary;
+
+  /// Only the latest request may update the screen, so switching periods
+  /// quickly can never show an older period's numbers under the new chip.
+  int _requestId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final id = ++_requestId;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final summary = await StaffRepository.instance.getOwnerSalesSummary(days: _days);
+      if (!mounted || id != _requestId) return;
+      setState(() {
+        _summary = summary;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted || id != _requestId) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  void _selectPeriod(int days) {
+    if (days == _days) return;
+    setState(() {
+      _days = days;
+      _summary = null;
+    });
+    _load();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final products = List<Product>.from(kProducts);
-    switch (_sortBy) {
-      case _SortBy.revenue:
-        products.sort((a, b) => b.monthlyRevenue.compareTo(a.monthlyRevenue));
-        break;
-      case _SortBy.units:
-        products.sort((a, b) => b.unitsSoldLast30Days.compareTo(a.unitsSoldLast30Days));
-        break;
-      case _SortBy.margin:
-        products.sort((a, b) => b.marginPercent.compareTo(a.marginPercent));
-        break;
-    }
-
-    final totalRevenue = kProducts.fold<double>(0, (sum, p) => sum + p.monthlyRevenue);
-    final topTwo = products.take(2).toList();
-    final crossSellShare = totalRevenue == 0
-        ? 0.0
-        : topTwo.fold<double>(0, (sum, p) => sum + p.monthlyRevenue) / totalRevenue * 100;
+    final summary = _summary;
+    final products = summary?.products ?? const <OwnerProductSales>[];
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      appBar: MelaiAppBar(
-        title: 'Product Performance',
-        showBack: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.sell_outlined),
-            tooltip: 'Product & Pricing Hub',
-            onPressed: () => Navigator.of(context).pushNamed(AppRoutes.productManagement),
-          ),
-        ],
-      ),
+      appBar: const MelaiAppBar(title: 'Product Performance', showBack: true),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
           children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.sm),
               child: Row(
                 children: [
-                  Expanded(child: _Stat(label: 'Core Lines', value: '${kProducts.length} SKUs')),
-                  Expanded(child: _Stat(label: 'Total Revenue', value: '₱${totalRevenue.toStringAsFixed(0)}')),
-                  Expanded(child: _Stat(label: 'Active', value: '${kProducts.where((p) => p.isActive).length}/${kProducts.length}')),
+                  for (final d in _periods)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text('$d days'),
+                        selected: _days == d,
+                        onSelected: (_) => _selectPeriod(d),
+                      ),
+                    ),
                 ],
               ),
             ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Ranked by:', style: AppTextStyles.bodySm),
-                DropdownButton<_SortBy>(
-                  value: _sortBy,
-                  underline: const SizedBox.shrink(),
-                  items: const [
-                    DropdownMenuItem(value: _SortBy.revenue, child: Text('Revenue (Highest First)')),
-                    DropdownMenuItem(value: _SortBy.units, child: Text('Units Sold')),
-                    DropdownMenuItem(value: _SortBy.margin, child: Text('Margin %')),
-                  ],
-                  onChanged: (v) => setState(() => _sortBy = v ?? _sortBy),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _load,
+                child: DataStateView(
+                  isLoading: _loading,
+                  error: _error,
+                  isEmpty: products.isEmpty,
+                  onRetry: _load,
+                  emptyIcon: Icons.leaderboard_outlined,
+                  emptyTitle: 'No sales in this period.',
+                  emptyMessage: 'Products appear here once there are completed orders.',
+                  builder: (context) => _content(summary!),
                 ),
-              ],
+              ),
             ),
-            const SizedBox(height: AppSpacing.sm),
-            for (int i = 0; i < products.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _RankCard(
-                  rank: i + 1,
-                  product: products[i],
-                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.productDetails, arguments: products[i].id),
-                ),
-              ),
-            const SizedBox(height: AppSpacing.md),
-            if (products.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(color: AppColors.primaryContainer.withValues(alpha: 0.35), borderRadius: BorderRadius.circular(AppSpacing.radiusMd)),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.link_rounded, color: AppColors.primaryDark),
-                        const SizedBox(width: 8),
-                        Text('Cross-Selling & Profit Driver', style: AppTextStyles.titleMd),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Builder(
-                      builder: (context) {
-                        final names = topTwo.map((p) => p.name.split('(').first.trim()).join(' + ');
-                        return Text(
-                          '$names generate ${crossSellShare.toStringAsFixed(1)}% of gross retail profits across all branches.',
-                          style: AppTextStyles.bodyMd,
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _content(OwnerSalesSummary summary) {
+    final products = summary.products;
+    final total = summary.productRevenue;
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.md, 0, AppSpacing.md, AppSpacing.md),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+            border: Border.all(color: AppColors.border),
+            boxShadow: AppShadows.sm,
+          ),
+          child: Row(
+            children: [
+              Expanded(child: _Stat(label: 'Item sales', value: '₱${_money.format(total)}')),
+              Expanded(child: _Stat(label: 'Units sold', value: NumberFormat('#,##0').format(summary.productUnits))),
+              Expanded(child: _Stat(label: 'Products', value: '${products.length}')),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        for (var i = 0; i < products.length; i++) ...[
+          _RankCard(
+            rank: i + 1,
+            product: products[i],
+            share: total <= 0 ? 0 : products[i].revenue / total,
+            money: _money,
+          ),
+          const SizedBox(height: 10),
+        ],
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            'Last ${summary.days} days, completed orders only. Item sales are before vouchers and '
+            'delivery fees. Products are matched by the name on the order. Top 50 shown.',
+            style: AppTextStyles.bodySm,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -157,72 +188,71 @@ class _Stat extends StatelessWidget {
 
 class _RankCard extends StatelessWidget {
   final int rank;
-  final Product product;
-  final VoidCallback onTap;
+  final OwnerProductSales product;
+  final double share;
+  final NumberFormat money;
 
-  const _RankCard({required this.rank, required this.product, required this.onTap});
+  const _RankCard({
+    required this.rank,
+    required this.product,
+    required this.share,
+    required this.money,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final category = findCategoryById(product.categoryId);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(AppSpacing.radiusMd), border: Border.all(color: AppColors.border), boxShadow: AppShadows.sm),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(color: rank <= 3 ? AppColors.primaryContainer : AppColors.surfaceContainerLow, shape: BoxShape.circle),
-                  child: Text('#$rank', style: AppTextStyles.labelLg.copyWith(color: AppColors.primaryDark)),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(product.name, style: AppTextStyles.labelLg, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      Text('${category.name} • Margin ${product.marginPercent.toStringAsFixed(0)}%', style: AppTextStyles.bodySm),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(child: _MiniStat(label: 'Gross Revenue', value: '₱${product.monthlyRevenue.toStringAsFixed(0)}')),
-                Expanded(child: _MiniStat(label: 'Units Sold', value: '${product.unitsSoldLast30Days}')),
-              ],
-            ),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+        border: Border.all(color: AppColors.border),
+        boxShadow: AppShadows.sm,
       ),
-    );
-  }
-}
-
-class _MiniStat extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _MiniStat({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: AppTextStyles.bodySm),
-        Text(value, style: AppTextStyles.labelLg),
-      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(color: AppColors.primaryContainer, shape: BoxShape.circle),
+                child: Text('$rank', style: AppTextStyles.labelSm.copyWith(color: AppColors.primaryDark)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  product.productName,
+                  style: AppTextStyles.labelLg,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                '₱${money.format(product.revenue)}',
+                style: AppTextStyles.labelLg.copyWith(color: AppColors.primary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: share.clamp(0.0, 1.0),
+              minHeight: 6,
+              backgroundColor: AppColors.border,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${product.units} unit${product.units == 1 ? '' : 's'} • ${(share * 100).toStringAsFixed(1)}% of item sales',
+            style: AppTextStyles.bodySm,
+          ),
+        ],
+      ),
     );
   }
 }

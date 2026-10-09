@@ -12,6 +12,10 @@
  *    is enforced by firestore.rules. Never put an app role in this claim.
  *  - A client cannot set its own custom claims; only these functions / the
  *    Admin SDK can.
+ *  - supabaseRoleOnSignIn also REFUSES sign-in when the account's Firestore
+ *    profile is inactive (users/{uid}.isActive present and not true). It runs at
+ *    sign-in only, not on token refresh: to end an existing session use
+ *    functions/deactivate-user.js (disables the user + revokes refresh tokens).
  *  - Staff/owner/delivery accounts also receive it. That is harmless: every
  *    customer policy is scoped to the caller's own firebase_uid.
  *
@@ -22,8 +26,26 @@
  * Then run functions/backfill-role-claim.js ONCE for users created earlier.
  */
 const { beforeUserCreated, beforeUserSignedIn } = require('firebase-functions/v2/identity');
+const logger = require('firebase-functions/logger');
+const { initializeApp, getApps } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
+const { makeSignInHandler, CLAIMS } = require('./lib/handlers');
 
-const claims = { role: 'authenticated' };
+function firestore() {
+  if (!getApps().length) initializeApp();
+  return getFirestore();
+}
 
-exports.supabaseRoleOnCreate = beforeUserCreated(() => ({ customClaims: claims }));
-exports.supabaseRoleOnSignIn = beforeUserSignedIn(() => ({ customClaims: claims }));
+/** The caller's Firestore profile, or null when none exists yet. */
+async function readUserProfile(uid) {
+  const snap = await firestore().collection('users').doc(uid).get();
+  return snap.exists ? snap.data() : null;
+}
+
+exports.supabaseRoleOnCreate = beforeUserCreated(() => ({ customClaims: CLAIMS }));
+
+// Also refuses sign-in for deactivated accounts (users/{uid}.isActive is not
+// true), so that check is enforced server-side and not only in the Flutter app.
+exports.supabaseRoleOnSignIn = beforeUserSignedIn(
+  makeSignInHandler({ readProfile: readUserProfile, log: logger }),
+);

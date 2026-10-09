@@ -5,7 +5,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
-import '../../../core/widgets/secondary_button.dart';
 import 'package:melai_nuts/data/catalog_store.dart';
 import '../../../data/models/product.dart';
 
@@ -75,27 +74,13 @@ class ProductManagementBody extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Artisanal Peanut Lines & Margin Health', style: AppTextStyles.titleMd),
-                        Text('Laguna Network • 3 Branches Synced', style: AppTextStyles.bodySm),
+                        Text('${kBranches.length} branch${kBranches.length == 1 ? '' : 'es'}', style: AppTextStyles.bodySm),
                       ],
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: SecondaryButton(
-                      label: 'Batch Price Adjustment',
-                      icon: Icons.price_change_outlined,
-                      onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Simulated: batch price adjustment applied.')),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
               PrimaryButton(
                 label: '+ Add New Product',
                 onPressed: () => Navigator.of(context).pushNamed(AppRoutes.productAdd),
@@ -249,7 +234,9 @@ class _CategoryBreakdownRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final category = findCategoryById(categoryId);
-    final revenue = products.fold<double>(0, (sum, p) => sum + p.monthlyRevenue);
+    final avgPrice = products.isEmpty
+        ? 0.0
+        : products.map((p) => p.price).reduce((a, b) => a + b) / products.length;
     final avgMargin = products.isEmpty
         ? 0.0
         : products.map((p) => p.marginPercent).reduce((a, b) => a + b) / products.length;
@@ -281,7 +268,7 @@ class _CategoryBreakdownRow extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Monthly Vol. ₱${revenue.toStringAsFixed(0)}', style: AppTextStyles.bodySm),
+              Text('Avg. price ₱${avgPrice.toStringAsFixed(2)}', style: AppTextStyles.bodySm),
               Text('Margin ${avgMargin.toStringAsFixed(1)}%', style: AppTextStyles.labelLg.copyWith(color: AppColors.success)),
             ],
           ),

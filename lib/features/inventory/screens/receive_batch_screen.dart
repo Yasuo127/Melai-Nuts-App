@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import '../../../core/services/staff_store.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../core/utils/app_error.dart';
+import '../../../core/utils/request_key.dart';
 import '../../../core/utils/validation_utils.dart';
 import '../../../core/widgets/melai_app_bar.dart';
 import '../../../core/widgets/primary_button.dart';
@@ -68,6 +71,7 @@ class _ReceiveFormState extends State<_ReceiveForm> {
   DateTime? _expiry;
   bool _assignExisting = false;
   bool _saving = false;
+  final _requestKey = RequestKeyHolder();
 
   InventoryItem? get _item => _variantId == null ? null : widget.store.itemByVariant(_variantId!);
 
@@ -138,6 +142,21 @@ class _ReceiveFormState extends State<_ReceiveForm> {
         receivedDate: _received,
         restockThreshold: int.tryParse(_thresholdController.text.trim()),
         assignExisting: _assignExisting,
+        // One key per distinct request: a retry after a timeout reuses it, so the
+        // server returns the batch it already created instead of "code already
+        // exists" (and never adds the stock twice).
+        idempotencyKey: _requestKey.keyFor(
+          jsonEncode([
+            branchId,
+            _variantId,
+            _codeController.text.trim(),
+            _qtyController.text.trim(),
+            _expiry!.toIso8601String(),
+            _received.toIso8601String(),
+            _thresholdController.text.trim(),
+            _assignExisting,
+          ]),
+        ),
       );
       if (!mounted) return;
       widget.store.refreshLive();
